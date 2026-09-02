@@ -30,8 +30,6 @@ const captura = {
   ocultarTimer: null
 };
 
-// Los envíos se encadenan en una sola promesa: con fetch en paralelo los
-// fragmentos pueden resolverse fuera de orden y los subtítulos se desordenan.
 let cola = Promise.resolve();
 let fallosSeguidos = 0;
 
@@ -156,6 +154,7 @@ async function iniciar() {
     setEstado('Escuchando', 'ok');
     fallosSeguidos = 0;
 
+    conectarWs();
     grabarFragmento();
   } catch (error) {
     console.error('[widget]', error);
@@ -178,7 +177,7 @@ function grabarFragmento() {
 
   recorder.onstop = () => {
     if (huboVoz && trozos.length) {
-      encolarEnvio(new Blob(trozos, { type: recorder.mimeType }));
+      enviarFragmento(new Blob(trozos, { type: recorder.mimeType }));
     }
     grabarFragmento();   // encadena el siguiente fragmento sin huecos
   };
@@ -219,6 +218,7 @@ function grabarFragmento() {
 
 async function detener() {
   captura.activa = false;
+  cerrarWs();
 
   clearInterval(captura.vigilante);
   captura.vigilante = null;
@@ -246,6 +246,116 @@ async function detener() {
 
 /* ------------------------- backend ------------------------- */
 
+// Transporte principal: WebSocket persistente (/ws). Evita el handshake por el
+// túnel en cada fragmento, permite que la subida del siguiente fragmento se
+// solape con la transcripción del actual y deja que el backend fije el idioma
+// y mantenga contexto entre fragmentos. Si no está disponible (backend
+// antiguo, túnel sin WS), cada fragmento cae a HTTP /transcribe.
+const ws = { socket: null, listo: false, intentos: 0, timer: null };
+const WS_REINTENTO_MAX_MS = 10000;
+
+function urlWebSocket(apiUrl) {
+  try {
+    const url = new URL(apiUrl);
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+    url.pathname = `${url.pathname.replace(/\/transcribe\/?$/, '').replace(/\/+$/, '')}/ws`;
+    url.search = '';
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function enviarConfigWs() {
+  if (!ws.listo) return;
+  ws.socket.send(JSON.stringify({ type: 'config', target_lang: cfg.targetLang }));
+}
+
+function conectarWs() {
+  clearTimeout(ws.timer);
+  if (!captura.activa || ws.socket) return;
+  const url = urlWebSocket(cfg.apiUrl);
+  if (!url) return;
+
+  const socket = new WebSocket(url);
+  ws.socket = socket;
+
+  socket.onopen = () => {
+    ws.listo = true;
+    ws.intentos = 0;
+    enviarConfigWs();
+    if (captura.activa) setEstado('Escuchando (ws)', 'ok');
+  };
+
+  socket.onmessage = (evento) => {
+    let mensaje;
+    try { mensaje = JSON.parse(evento.data); } catch { return; }
+    manejarMensajeWs(mensaje);
+  };
+
+  socket.onerror = () => { /* onclose llega justo después */ };
+
+  socket.onclose = () => {
+    ws.listo = false;
+    ws.socket = null;
+    if (!captura.activa) return;
+    // Mientras se reconecta, los fragmentos van por HTTP: no se pierde nada.
+    const espera = Math.min(WS_REINTENTO_MAX_MS, 1000 * 2 ** ws.intentos);
+    ws.intentos += 1;
+    ws.timer = setTimeout(conectarWs, espera);
+  };
+}
+
+function cerrarWs() {
+  clearTimeout(ws.timer);
+  ws.timer = null;
+  ws.listo = false;
+  ws.intentos = 0;
+  if (ws.socket) {
+    const socket = ws.socket;
+    ws.socket = null;
+    socket.onclose = null;
+    try { socket.close(); } catch { /* ya cerrado */ }
+  }
+}
+
+function manejarMensajeWs(mensaje) {
+  switch (mensaje.type) {
+    case 'result': {
+      fallosSeguidos = 0;
+      const texto = (mensaje.translation || mensaje.text || '').trim();
+      if (texto) mostrarSubtitulo(texto);
+      if (captura.activa) {
+        setEstado(`Escuchando (ws · ${mensaje.total_ms} ms)`, 'ok');
+      }
+      break;
+    }
+    case 'dropped':
+      setEstado(`Backend saturado: ${mensaje.seqs.length} fragmento(s) descartado(s)`, 'error');
+      break;
+    case 'error':
+      console.error('[widget] backend:', mensaje.detail);
+      break;
+    default:
+      break;   // ready, config_ok, empty, pong
+  }
+}
+
+// Los envíos HTTP se encadenan en una sola promesa: con fetch en paralelo los
+// fragmentos pueden resolverse fuera de orden y los subtítulos se desordenan.
+// Por WebSocket el orden lo garantiza la propia conexión.
+async function enviarFragmento(blob) {
+  if (ws.listo) {
+    try {
+      ws.socket.send(await blob.arrayBuffer());
+      return;
+    } catch (error) {
+      console.warn('[widget] fallo enviando por ws, se usa HTTP:', error);
+    }
+  }
+  encolarEnvio(blob);
+}
+
 function encolarEnvio(blob) {
   cola = cola.then(() => enviar(blob)).catch((error) => {
     console.error('[widget] envio fallido:', error);
@@ -263,7 +373,7 @@ async function enviar(blob) {
 
     const datos = await respuesta.json();
     fallosSeguidos = 0;
-    if (captura.activa) setEstado('Escuchando', 'ok');
+    if (captura.activa && !ws.listo) setEstado('Escuchando (http)', 'ok');
 
     if (!datos.success || !datos.segments?.length) return;
 
@@ -364,6 +474,8 @@ function guardarUrl(texto) {
   ui.inpApi.value = texto;
   guardar({ apiUrl: texto });
   setEstado('Backend guardado', 'ok');
+  // Con la captura en marcha, el ws se reabre contra la URL nueva.
+  if (captura.activa) { cerrarWs(); conectarWs(); }
   return true;
 }
 
@@ -374,7 +486,10 @@ ui.btnPegar.addEventListener('click', async () => {
 });
 
 ui.inpApi.addEventListener('change', () => guardarUrl(normalizarUrl(ui.inpApi.value)));
-ui.selIdioma.addEventListener('change', () => guardar({ targetLang: ui.selIdioma.value }));
+ui.selIdioma.addEventListener('change', () => {
+  guardar({ targetLang: ui.selIdioma.value });
+  enviarConfigWs();
+});
 ui.chkMonitor.addEventListener('change', () => guardar({ monitorizar: ui.chkMonitor.checked }));
 
 const deslizadores = [
