@@ -56,9 +56,33 @@ mezcla completa del sistema.
 - **Backend**: la misma URL `/transcribe` que usa la extensión. El botón
   **Pegar** toma la URL del portapapeles y le añade `/transcribe` si le falta,
   así que cuando el túnel de Cloudflare cambia de dominio basta con copiar el
-  enlace nuevo y pulsar ahí. El widget envía `file` (webm/opus) y `target_lang`
-  en un `multipart/form-data`, y espera
-  `{ success, segments: [{ text, translations }] }`.
+  enlace nuevo y pulsar ahí.
+
+## Cómo habla con el backend
+
+El backend recomendado es `backend/colab_whisper_ws.ipynb` (o el `.py` con
+las mismas celdas), pensado para este widget:
+
+1. Al pulsar **Escuchar** el widget deriva `wss://<dominio>/ws` de la URL
+   guardada y abre **un WebSocket** que dura toda la sesión. Manda
+   `{"type":"config","target_lang":"es"}` y luego cada fragmento (webm/opus)
+   como mensaje binario. El backend responde en orden con
+   `{"type":"result","text","translation","total_ms",...}`.
+   El estado muestra `Escuchando (ws · N ms)` con la latencia de cada fragmento.
+2. Si el WebSocket no está disponible (backend antiguo, túnel caído), cada
+   fragmento se envía por HTTP a `/transcribe` con `file` y `target_lang` en
+   `multipart/form-data`, como antes. El estado muestra `Escuchando (http)` y
+   el widget sigue intentando reabrir el WebSocket con espera creciente.
+3. Cambiar el idioma o la URL con la captura en marcha se aplica al momento,
+   sin parar de escuchar.
+
+Ventajas del WebSocket frente a HTTP por fragmento: sin handshake TCP+TLS por
+el túnel en cada envío, la subida del fragmento siguiente se solapa con la
+transcripción del actual, el backend fija el idioma detectado tras dos
+fragmentos seguros (deja de detectarlo y ya no "cambia" de idioma en frases
+cortas) y usa el texto anterior como contexto para nombres y puntuación.
+Si la GPU se retrasa, el backend descarta los fragmentos más antiguos y avisa
+con `Backend saturado` para que el subtítulo siga en vivo.
 
 ## Estructura
 
