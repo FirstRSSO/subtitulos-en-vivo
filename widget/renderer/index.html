@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self'; script-src 'self'; connect-src *;">
+  <title>Traductor de Audios</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <header id="barra">
+      <button id="btnEscuchar" class="principal" title="Escuchar (Ctrl+Shift+T)">
+        <span class="icono">&#9654;</span><span id="txtEscuchar">Escuchar</span>
+      </button>
+
+      <div id="medidor" title="Nivel de audio entrante"><span id="medidorRelleno"></span></div>
+
+      <select id="selFuente" title="Origen del audio">
+        <option value="loopback">Audio del sistema</option>
+        <option value="device">Dispositivo concreto</option>
+      </select>
+
+      <select id="selDispositivo" title="Entrada de audio" hidden></select>
+
+      <span id="estado" class="estado">Listo</span>
+
+      <div class="arrastrable"></div>
+
+      <button id="btnAjustes" class="icono-btn" title="Ajustes">&#9881;</button>
+      <button id="btnFantasma" class="icono-btn" title="Modo fantasma: deja pasar los clics">&#9673;</button>
+      <button id="btnMin" class="icono-btn" title="Minimizar">&#8211;</button>
+      <button id="btnCerrar" class="icono-btn cerrar" title="Cerrar">&#10005;</button>
+    </header>
+
+    <section id="ajustes" hidden>
+      <div class="campo ancho">
+        <label for="inpApi">Backend de transcripción</label>
+        <div class="fila">
+          <input id="inpApi" type="text" spellcheck="false" placeholder="https://....trycloudflare.com/transcribe">
+          <button id="btnPegar" title="Pegar la URL copiada del túnel">Pegar</button>
+        </div>
+      </div>
+
+      <div class="campo">
+        <label for="selIdioma">Traducir a</label>
+        <select id="selIdioma">
+          <option value="es">Español</option>
+          <option value="en">Inglés</option>
+          <option value="pt">Portugués</option>
+          <option value="fr">Francés</option>
+          <option value="de">Alemán</option>
+          <option value="it">Italiano</option>
+          <option value="ja">Japonés</option>
+          <option value="zh">Chino</option>
+          <option value="ru">Ruso</option>
+        </select>
+      </div>
+
+      <div class="campo">
+        <label for="inpFuente">Tamaño de letra <span id="valFuente" class="valor"></span></label>
+        <input id="inpFuente" type="range" min="14" max="48" step="1">
+      </div>
+
+      <div class="campo">
+        <label for="inpOpacidad">Opacidad del fondo <span id="valOpacidad" class="valor"></span></label>
+        <input id="inpOpacidad" type="range" min="0" max="100" step="5">
+      </div>
+
+      <div class="campo">
+        <label for="inpMin">Fragmento mínimo <span id="valMin" class="valor"></span></label>
+        <input id="inpMin" type="range" min="1500" max="6000" step="250">
+      </div>
+
+      <div class="campo">
+        <label for="inpMax">Fragmento máximo <span id="valMax" class="valor"></span></label>
+        <input id="inpMax" type="range" min="4000" max="15000" step="500">
+      </div>
+
+      <div class="campo">
+        <label for="inpUmbral">Umbral de silencio <span id="valUmbral" class="valor"></span></label>
+        <input id="inpUmbral" type="range" min="1" max="60" step="1">
+      </div>
+
+      <div class="campo casilla">
+        <label><input id="chkMonitor" type="checkbox"> Oír el audio por los altavoces (solo modo dispositivo)</label>
+      </div>
+
+      <p class="ayuda">
+        Para traducir <strong>un solo programa</strong>: instala VB-CABLE, envía esa aplicación
+        al cable desde <em>Configuración &rsaquo; Sistema &rsaquo; Sonido &rsaquo; Preferencias de volumen
+        y dispositivos</em>, y elige aquí <em>CABLE Output</em> como dispositivo.
+      </p>
+    </section>
+
+    <div id="subtitulo" class="oculto"></div>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+</html>

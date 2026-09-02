@@ -1,0 +1,14 @@
+{
+  "name": "traductor-audios-widget",
+  "version": "1.0.0",
+  "description": "Widget de escritorio que traduce el audio del sistema o de una aplicación concreta",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^44.1.1"
+  }
+}

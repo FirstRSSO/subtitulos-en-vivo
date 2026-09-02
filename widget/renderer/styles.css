@@ -1,0 +1,188 @@
+:root {
+  --fondo: rgba(14, 16, 22, 0.92);
+  --fondo-sub: rgba(0, 0, 0, 0.85);
+  --texto: #e8ecf4;
+  --tenue: #96a0b5;
+  --acento: #00ff66;
+  --borde: rgba(255, 255, 255, 0.10);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: transparent;   /* la ventana es transparente: el fondo lo pinta #app */
+  overflow: hidden;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: var(--texto);
+  user-select: none;
+  cursor: default;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: 8px;
+  padding: 8px;
+}
+
+/* ---------- barra superior ---------- */
+
+#barra {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  backdrop-filter: blur(8px);
+  flex: 0 0 auto;
+}
+
+.arrastrable {
+  flex: 1;
+  align-self: stretch;
+  -webkit-app-region: drag;   /* la zona vacía de la barra mueve la ventana */
+}
+
+#barra button,
+#barra select { -webkit-app-region: no-drag; }
+
+button, select, input[type="text"] {
+  font: inherit;
+  color: var(--texto);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid var(--borde);
+  border-radius: 7px;
+  padding: 5px 9px;
+  cursor: pointer;
+  outline: none;
+}
+
+button:hover, select:hover { background: rgba(255, 255, 255, 0.14); }
+select option { background: #14171f; }
+
+.principal {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.principal.activo {
+  background: rgba(0, 255, 102, 0.16);
+  border-color: rgba(0, 255, 102, 0.45);
+  color: var(--acento);
+}
+
+.icono { font-size: 11px; }
+
+.icono-btn {
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--tenue);
+}
+
+.icono-btn.encendido { color: var(--acento); border-color: rgba(0, 255, 102, 0.45); }
+.cerrar:hover { background: #c0392b; color: #fff; border-color: #c0392b; }
+
+.estado {
+  font-size: 12px;
+  color: var(--tenue);
+  white-space: nowrap;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.estado.error { color: #ff7b72; }
+.estado.ok { color: var(--acento); }
+
+#medidor {
+  width: 54px;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+#medidorRelleno {
+  display: block;
+  height: 100%;
+  width: 0%;
+  background: var(--acento);
+  transition: width 60ms linear;
+}
+
+/* ---------- panel de ajustes ---------- */
+
+#ajustes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 14px;
+  padding: 12px;
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  font-size: 12px;
+  overflow-y: auto;
+  flex: 1 1 auto;
+}
+
+#ajustes[hidden] { display: none; }
+
+.campo { display: flex; flex-direction: column; gap: 4px; }
+.campo.ancho, .campo.casilla, .ayuda { grid-column: 1 / -1; }
+.campo label { color: var(--tenue); }
+.campo.casilla label { display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.valor { color: var(--texto); float: right; }
+
+.fila { display: flex; gap: 6px; }
+.fila input { flex: 1; min-width: 0; }
+
+input[type="text"] {
+  width: 100%;
+  cursor: text;
+  user-select: text;
+}
+
+input[type="range"] { accent-color: var(--acento); cursor: pointer; }
+
+.ayuda {
+  margin: 2px 0 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--borde);
+  color: var(--tenue);
+  line-height: 1.5;
+}
+
+.ayuda strong { color: var(--texto); }
+
+/* ---------- subtítulos ---------- */
+
+#subtitulo {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 14px 22px;
+  background: var(--fondo-sub);
+  border-radius: 10px;
+  color: var(--acento);
+  font-size: 24px;
+  line-height: 1.35;
+  overflow-y: auto;
+  transition: opacity 0.3s ease;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+}
+
+#subtitulo.oculto { opacity: 0.25; color: var(--tenue); font-size: 14px; }
