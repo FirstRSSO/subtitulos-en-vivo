@@ -57,6 +57,43 @@ function mostrarSubtitulo(texto) {
   }, 8000);
 }
 
+// Subtítulos que no son habla: alucinaciones de Whisper o errores de HTTP/traducción.
+const BASURA_SUB = new RegExp(
+  '^[\\s\\W\\d]*(' +
+    'error\\s*[45]\\d{2}|' +
+    'internal server error|' +
+    'that[\'’]?s an error|' +
+    'that is an error|' +
+    'eso es un error|' +
+    '\\[error[^\\]]*\\]|' +
+    'thanks? (you )?for watching|' +
+    'thank you\\.?' +
+  ')[\\s\\W\\d]*$',
+  'i'
+);
+
+function recortar(texto, n = 140) {
+  const t = String(texto || '').replace(/\s+/g, ' ').trim();
+  return t.length > n ? `${t.slice(0, n)}…` : t;
+}
+
+function pareceBasura(texto) {
+  const t = String(texto || '').trim();
+  return !t || BASURA_SUB.test(t);
+}
+
+function elegirSubtitulo(original, traduccion) {
+  const orig = String(original || '').trim();
+  let trad = String(traduccion || '').trim();
+  if (/^\[error/i.test(trad)) {
+    registrar('warn', 'servidor', 'Traducción falló; se usa el original', recortar(trad));
+    trad = orig;
+  }
+  if (pareceBasura(trad) && !pareceBasura(orig)) return orig;
+  if (pareceBasura(trad) || pareceBasura(orig)) return '';
+  return trad || orig;
+}
+
 function aplicarEstilos() {
   ui.subtitulo.style.fontSize = `${cfg.fontSize}px`;
   ui.subtitulo.style.background = `rgba(0, 0, 0, ${cfg.opacidad})`;
@@ -527,17 +564,23 @@ function manejarMensajeWs(mensaje) {
       break;
     case 'result': {
       fallosSeguidos = 0;
-      const texto = (mensaje.translation || mensaje.text || '').trim();
-      if (texto) mostrarSubtitulo(texto);
-      if (captura.activa) {
-        setEstado(`Escuchando (ws · ${mensaje.total_ms} ms)`, 'ok');
-      }
+      const original = (mensaje.text || '').trim();
+      const traduccion = (mensaje.translation || '').trim();
+      const texto = elegirSubtitulo(original, traduccion);
       registrar(
         'info',
         'servidor',
         `WS result #${mensaje.seq ?? '?'} ${mensaje.total_ms} ms`,
-        `${mensaje.language ?? '?'} ${mensaje.audio_s ?? '?'}s`
+        `${mensaje.language ?? '?'} ${mensaje.audio_s ?? '?'}s «${recortar(original)}» → «${recortar(traduccion || original)}»`
       );
+      if (!texto) {
+        registrar('warn', 'widget', 'Subtítulo descartado (parece error o alucinación)', recortar(traduccion || original));
+        break;
+      }
+      mostrarSubtitulo(texto);
+      if (captura.activa) {
+        setEstado(`Escuchando (ws · ${mensaje.total_ms} ms)`, 'ok');
+      }
       break;
     }
     case 'empty':
@@ -618,12 +661,18 @@ async function enviar(blob, seq) {
 
     if (!datos.success || !datos.segments?.length) return;
 
-    const texto = datos.segments
+    const original = datos.segments.map((s) => s.text).join(' ').trim();
+    const traduccion = datos.segments
       .map((s) => s.translations?.[cfg.targetLang] ?? s.text)
       .join(' ')
       .trim();
-
-    if (texto) mostrarSubtitulo(texto);
+    registrar('info', 'servidor', `HTTP texto frag #${seq}`, `«${recortar(original)}» → «${recortar(traduccion)}»`);
+    const texto = elegirSubtitulo(original, traduccion);
+    if (!texto) {
+      registrar('warn', 'widget', 'Subtítulo descartado (parece error o alucinación)', recortar(traduccion || original));
+      return;
+    }
+    mostrarSubtitulo(texto);
   } catch (error) {
     if (!error.yaRegistrado) {
       fallosSeguidos += 1;

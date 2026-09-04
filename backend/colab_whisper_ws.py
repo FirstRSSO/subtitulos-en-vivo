@@ -136,16 +136,23 @@ MAX_PROMPT_CHARS = 200
 QUEUE_MAX = 4              # fragmentos en espera por sesión antes de descartar los viejos
 TRANSLATE_CACHE = 512
 
-# Frases que Whisper inventa en silencio, música o aplausos.
+# Frases que Whisper inventa en silencio/música, o errores de traducción
+# que no deben acabar como subtítulo (p. ej. "Error 500", "That's an error").
 HALLUCINATIONS = re.compile(
-    r"^(\W*)("
+    r"^[\W\d]*("
     r"subt[ií]tulos? (realizados?|por|hechos?) .*amara\.org|"
     r"gracias por (ver|mirar)( el v[ií]deo)?|"
     r"thanks? (you )?for watching|"
     r"suscr[ií]bete.*|subscribe.*|"
     r"¡?m[uú]sica!?|\[m[uú]sica\]|\[music\]|\(music\)|"
-    r"you|bye|thank you\.?"
-    r")(\W*)$",
+    r"you|bye|thank you\.?|"
+    r"error\s*[45]\d{2}|"
+    r"internal server error|"
+    r"that['’]?s an error|"
+    r"that is an error|"
+    r"eso es un error|"
+    r"\[error[^\]]*\]"
+    r")[\W\d]*$",
     re.IGNORECASE,
 )
 
@@ -246,6 +253,8 @@ def transcribe_audio(audio: np.ndarray, language: str | None, initial_prompt: st
             continue
         # Alucinación típica: mucha probabilidad de "no hay voz" y poca confianza.
         if s.no_speech_prob > 0.6 and s.avg_logprob < -1.0:
+            continue
+        if s.compression_ratio > 2.4:
             continue
         if HALLUCINATIONS.match(text):
             continue
@@ -390,6 +399,11 @@ async def process_loop(ws: WebSocket, s: Session, queue: asyncio.Queue):
             translation = text
             if s.target_lang and s.target_lang != info.language:
                 translation = await loop.run_in_executor(mt_pool, translate_text, text, s.target_lang)
+                if translation.startswith("[Error"):
+                    translation = text
+            if HALLUCINATIONS.match(translation):
+                await ws.send_json({"type": "empty", "seq": seq, "reason": "filtered"})
+                continue
             t_end = time.perf_counter()
 
             await ws.send_json({
