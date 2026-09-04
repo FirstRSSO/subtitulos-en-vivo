@@ -26,6 +26,21 @@ let config = { ...DEFAULTS };
 let ajustandoPanel = false;
 
 const rutaConfig = () => path.join(app.getPath('userData'), 'config.json');
+const rutaLog = () => path.join(app.getPath('userData'), 'widget.log');
+const LOG_MAX_BYTES = 1_500_000;
+
+function appendLog(linea) {
+  const archivo = rutaLog();
+  try {
+    if (fs.existsSync(archivo) && fs.statSync(archivo).size > LOG_MAX_BYTES) {
+      const cola = fs.readFileSync(archivo, 'utf8').slice(-Math.floor(LOG_MAX_BYTES / 2));
+      fs.writeFileSync(archivo, cola, 'utf8');
+    }
+    fs.appendFileSync(archivo, `${linea}\n`, 'utf8');
+  } catch (error) {
+    console.error('[widget] no se pudo escribir el log:', error.message);
+  }
+}
 
 function cargarConfig() {
   try {
@@ -174,6 +189,20 @@ ipcMain.handle('ventana:clickThrough', (_evento, activo, persistir = true) => {
 // El preload se ejecuta en sandbox y no puede importar `clipboard`, así que
 // la lectura se hace aquí y viaja por IPC.
 ipcMain.handle('portapapeles:leer', () => clipboard.readText());
+ipcMain.handle('portapapeles:escribir', (_evento, texto) => {
+  clipboard.writeText(String(texto ?? ''));
+});
+
+ipcMain.handle('log:append', (_evento, linea) => { appendLog(String(linea ?? '')); });
+ipcMain.handle('log:ruta', () => rutaLog());
+ipcMain.handle('log:vaciar', () => {
+  try { fs.writeFileSync(rutaLog(), '', 'utf8'); } catch { /* disco lleno o sin permiso */ }
+});
+ipcMain.handle('log:abrir', () => {
+  const archivo = rutaLog();
+  if (!fs.existsSync(archivo)) fs.writeFileSync(archivo, '', 'utf8');
+  shell.showItemInFolder(archivo);
+});
 
 // El panel de ajustes no cabe en la altura normal del widget: al abrirlo la
 // ventana crece hacia arriba y al cerrarlo recupera su tamaño.

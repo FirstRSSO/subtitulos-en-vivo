@@ -21,6 +21,7 @@ npm start
 | **Audio del sistema / Dispositivo** | Origen del audio |
 | ⚙ | Panel de ajustes |
 | ◉ | Modo fantasma: los clics atraviesan el widget (pasa el ratón por la barra para recuperarlo) |
+| **log** | Registro de eventos: distingue si un error es del servidor, del túnel o de la red |
 | `Ctrl+Shift+H` | Ocultar / mostrar el widget |
 
 La ventana se arrastra por la zona vacía de la barra y se redimensiona por los
@@ -83,6 +84,24 @@ fragmentos seguros (deja de detectarlo y ya no "cambia" de idioma en frases
 cortas) y usa el texto anterior como contexto para nombres y puntuación.
 Si la GPU se retrasa, el backend descarta los fragmentos más antiguos y avisa
 con `Backend saturado` para que el subtítulo siga en vivo.
+
+## Diagnóstico (botón **log**)
+
+Cuando aparece un error, el botón **log** de la barra se pone en rojo. Ábrelo
+para ver el origen de cada línea:
+
+| Origen | Significa |
+|---|---|
+| **servidor** | El notebook respondió. Un HTTP 500 trae el detalle de Whisper/CUDA (el cuerpo `detail` de FastAPI). Un mensaje `WS error` es el mismo fallo por WebSocket. |
+| **túnel** | Cloudflare contestó por el notebook: 502, 504, 530… El kernel de Kaggle/Colab se durmió o el túnel caducó. |
+| **red** | No hubo respuesta HTTP. DNS, PC sin internet, o el túnel cortado sin cierre limpio (WS código 1006). |
+| **widget** | Fallo local: captura de audio, URL mal pegada, MediaRecorder. |
+
+Al pulsar **Escuchar** el widget llama a `GET /health`. Si eso ya falla, el
+problema es de conexión o del notebook, no de un fragmento concreto.
+
+**Copiar** pone el registro en el portapapeles. **Archivo** abre
+`widget.log` en `%APPDATA%/traductor-audios-widget/` (junto a `config.json`).
 
 ## Estructura
 

@@ -28,6 +28,7 @@
       <div class="arrastrable"></div>
 
       <button id="btnAjustes" class="icono-btn" title="Ajustes">&#9881;</button>
+      <button id="btnLogs" class="icono-btn btn-logs" title="Registro: ver si el error es del servidor, el t&#250;nel o el widget">log</button>
       <button id="btnFantasma" class="icono-btn" title="Modo fantasma: deja pasar los clics">&#9673;</button>
       <button id="btnMin" class="icono-btn" title="Minimizar">&#8211;</button>
       <button id="btnCerrar" class="icono-btn cerrar" title="Cerrar">&#10005;</button>
@@ -91,6 +92,25 @@
         al cable desde <em>Configuración &rsaquo; Sistema &rsaquo; Sonido &rsaquo; Preferencias de volumen
         y dispositivos</em>, y elige aquí <em>CABLE Output</em> como dispositivo.
       </p>
+    </section>
+
+    <section id="logs" hidden>
+      <div class="logs-cabecera">
+        <strong>Registro</strong>
+        <span id="logRuta" class="logs-ruta"></span>
+        <div class="logs-acciones">
+          <button id="btnLogCopiar" title="Copiar todo el registro">Copiar</button>
+          <button id="btnLogAbrir" title="Abrir el archivo de log en el explorador">Archivo</button>
+          <button id="btnLogVaciar" title="Vaciar el registro">Vaciar</button>
+        </div>
+      </div>
+      <p class="logs-leyenda">
+        <span class="log-origen servidor">servidor</span> notebook / Whisper
+        <span class="log-origen tunel">t&#250;nel</span> Cloudflare
+        <span class="log-origen red">red</span> sin respuesta
+        <span class="log-origen widget">widget</span> este programa
+      </p>
+      <ol id="logLista"></ol>
     </section>
 
     <div id="subtitulo" class="oculto"></div>

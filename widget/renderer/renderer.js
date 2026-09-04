@@ -12,7 +12,10 @@ const ui = {
   inpMin: $('inpMin'), inpMax: $('inpMax'), inpUmbral: $('inpUmbral'),
   chkMonitor: $('chkMonitor'),
   valFuente: $('valFuente'), valOpacidad: $('valOpacidad'),
-  valMin: $('valMin'), valMax: $('valMax'), valUmbral: $('valUmbral')
+  valMin: $('valMin'), valMax: $('valMax'), valUmbral: $('valUmbral'),
+  logs: $('logs'), logLista: $('logLista'), btnLogs: $('btnLogs'),
+  logRuta: $('logRuta'), btnLogCopiar: $('btnLogCopiar'),
+  btnLogAbrir: $('btnLogAbrir'), btnLogVaciar: $('btnLogVaciar')
 };
 
 let cfg = {};
@@ -32,11 +35,15 @@ const captura = {
 
 let cola = Promise.resolve();
 let fallosSeguidos = 0;
+let seqLocal = 0;
+let altoPlegado = null;
+let erroresSinVer = 0;
 
 /* ------------------------- estado e interfaz ------------------------- */
 
 function setEstado(texto, tipo = '') {
   ui.estado.textContent = texto;
+  ui.estado.title = texto;
   ui.estado.className = `estado ${tipo}`;
 }
 
@@ -53,6 +60,154 @@ function mostrarSubtitulo(texto) {
 function aplicarEstilos() {
   ui.subtitulo.style.fontSize = `${cfg.fontSize}px`;
   ui.subtitulo.style.background = `rgba(0, 0, 0, ${cfg.opacidad})`;
+}
+
+/* ------------------------- registro ------------------------- */
+// Cada línea lleva origen para saber si un "Error 500" es el notebook
+// (servidor), Cloudflare (túnel), un corte de red, o un fallo local.
+
+const MAX_LOGS = 300;
+const CODIGOS_TUNEL = new Set([502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527, 530]);
+const logsMem = [];
+
+function horaLocal(d = new Date()) {
+  const p = (n, w = 2) => String(n).padStart(w, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
+}
+
+function etiquetaOrigen(origen) {
+  return origen === 'tunel' ? 'túnel' : origen;
+}
+
+function origenHttp(status) {
+  return CODIGOS_TUNEL.has(status) ? 'tunel' : 'servidor';
+}
+
+function formatearLinea(e) {
+  const extra = e.extra ? ` — ${e.extra}` : '';
+  return `${e.iso}  ${e.nivel.toUpperCase().padEnd(5)}  ${etiquetaOrigen(e.origen).padEnd(8)}  ${e.mensaje}${extra}`;
+}
+
+function registrar(nivel, origen, mensaje, extra = '') {
+  const ahora = new Date();
+  const entrada = {
+    iso: ahora.toISOString(),
+    hora: horaLocal(ahora),
+    nivel,
+    origen,
+    mensaje: String(mensaje || ''),
+    extra: extra ? String(extra) : ''
+  };
+  logsMem.push(entrada);
+  if (logsMem.length > MAX_LOGS) logsMem.shift();
+  pintarEntrada(entrada);
+  while (ui.logLista.children.length > MAX_LOGS) ui.logLista.firstChild.remove();
+  window.widget.appendLog(formatearLinea(entrada)).catch(() => {});
+  if (nivel === 'error' && ui.logs.hidden) {
+    erroresSinVer += 1;
+    ui.btnLogs.classList.add('alerta');
+    ui.btnLogs.title = `Registro (${erroresSinVer} error(es) nuevo(s))`;
+  }
+}
+
+function pintarEntrada(e) {
+  const lista = ui.logLista;
+  const alFondo = lista.scrollHeight - lista.scrollTop - lista.clientHeight < 48;
+  const li = document.createElement('li');
+  li.className = `log-${e.nivel}`;
+  const time = document.createElement('time');
+  time.textContent = e.hora;
+  const origen = document.createElement('span');
+  origen.className = `log-origen ${e.origen}`;
+  origen.textContent = etiquetaOrigen(e.origen);
+  const msg = document.createElement('span');
+  msg.className = 'log-msg';
+  msg.textContent = e.extra ? `${e.mensaje} — ${e.extra}` : e.mensaje;
+  li.append(time, origen, msg);
+  lista.append(li);
+  if (alFondo) lista.scrollTop = lista.scrollHeight;
+}
+
+async function cuerpoError(respuesta) {
+  let raw = '';
+  try { raw = await respuesta.text(); } catch { return ''; }
+  if (!raw) return '';
+  try {
+    const json = JSON.parse(raw);
+    if (typeof json.detail === 'string') return json.detail;
+    if (json.detail) return JSON.stringify(json.detail);
+    if (typeof json.message === 'string') return json.message;
+    return JSON.stringify(json).slice(0, 400);
+  } catch {
+    const title = raw.match(/<title>([^<]+)<\/title>/i);
+    const h1 = raw.match(/<h1>([^<]+)<\/h1>/i);
+    const plano = (title?.[1] || h1?.[1] || raw.replace(/<[^>]+>/g, ' '))
+      .replace(/\s+/g, ' ')
+      .trim();
+    return plano.slice(0, 400);
+  }
+}
+
+function urlHealth(apiUrl) {
+  try {
+    const url = new URL(apiUrl);
+    url.pathname = `${url.pathname.replace(/\/transcribe\/?$/, '').replace(/\/+$/, '')}/health`;
+    url.search = '';
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+async function comprobarSalud() {
+  const url = urlHealth(cfg.apiUrl);
+  if (!url) {
+    registrar('error', 'widget', 'URL del backend no válida', cfg.apiUrl);
+    return;
+  }
+  const t0 = performance.now();
+  try {
+    const r = await fetch(url, { method: 'GET' });
+    const ms = Math.round(performance.now() - t0);
+    const raw = await r.text();
+    if (!r.ok) {
+      let detalle = raw.slice(0, 300);
+      try {
+        const j = JSON.parse(raw);
+        detalle = typeof j.detail === 'string' ? j.detail : raw.slice(0, 300);
+      } catch {
+        detalle = raw.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+      }
+      registrar('error', origenHttp(r.status), `GET /health → ${r.status} (${ms} ms)`, detalle);
+      return;
+    }
+    let extra = raw.slice(0, 200);
+    try {
+      const j = JSON.parse(raw);
+      extra = `device=${j.device ?? '?'} model=${j.model ?? '?'} ws=${j.ws ?? '?'}`;
+    } catch { /* texto plano */ }
+    registrar('info', 'servidor', `GET /health → ${r.status} (${ms} ms)`, extra);
+  } catch (error) {
+    registrar(
+      'error',
+      'red',
+      `GET /health no responde (${Math.round(performance.now() - t0)} ms)`,
+      error.message
+    );
+  }
+}
+
+function sincronizarAlto() {
+  const ajustes = !ui.ajustes.hidden;
+  const logs = !ui.logs.hidden;
+  if (!ajustes && !logs) {
+    if (altoPlegado !== null) window.widget.setAlto(altoPlegado);
+    altoPlegado = null;
+    return;
+  }
+  if (altoPlegado === null) altoPlegado = window.outerHeight;
+  const alto = ajustes && logs ? 700 : ajustes ? 520 : 440;
+  window.widget.setAlto(Math.max(alto, altoPlegado));
 }
 
 /* ------------------------- dispositivos ------------------------- */
@@ -129,6 +284,8 @@ function tipoSoportado() {
 async function iniciar() {
   try {
     setEstado('Conectando...');
+    seqLocal = 0;
+    registrar('info', 'widget', 'Iniciando captura', `fuente=${cfg.fuente} lang=${cfg.targetLang}`);
     captura.stream = await obtenerStream();
 
     captura.audioCtx = new AudioContext();
@@ -153,11 +310,14 @@ async function iniciar() {
     ui.btnEscuchar.querySelector('.icono').innerHTML = '&#9632;';
     setEstado('Escuchando', 'ok');
     fallosSeguidos = 0;
+    registrar('info', 'widget', 'Captura activa', cfg.fuente === 'device' ? `dispositivo=${cfg.deviceId}` : 'loopback');
 
     conectarWs();
+    comprobarSalud();
     grabarFragmento();
   } catch (error) {
     console.error('[widget]', error);
+    registrar('error', 'widget', 'No se pudo iniciar la captura', error.message);
     setEstado(`No se pudo iniciar: ${error.message}`, 'error');
     await detener();
   }
@@ -174,6 +334,9 @@ function grabarFragmento() {
 
   captura.recorder = recorder;
   recorder.ondataavailable = (e) => { if (e.data.size > 0) trozos.push(e.data); };
+  recorder.onerror = (e) => {
+    registrar('error', 'widget', 'MediaRecorder falló', e.error?.message || 'error desconocido');
+  };
 
   recorder.onstop = () => {
     if (huboVoz && trozos.length) {
@@ -217,6 +380,7 @@ function grabarFragmento() {
 }
 
 async function detener() {
+  const estabaActiva = captura.activa;
   captura.activa = false;
   cerrarWs();
 
@@ -242,6 +406,7 @@ async function detener() {
   ui.btnEscuchar.querySelector('.icono').innerHTML = '&#9654;';
   ui.medidor.style.width = '0%';
   setEstado('Listo');
+  if (estabaActiva) registrar('info', 'widget', 'Captura detenida');
 }
 
 /* ------------------------- backend ------------------------- */
@@ -275,34 +440,64 @@ function conectarWs() {
   clearTimeout(ws.timer);
   if (!captura.activa || ws.socket) return;
   const url = urlWebSocket(cfg.apiUrl);
-  if (!url) return;
+  if (!url) {
+    registrar('error', 'widget', 'No se pudo derivar la URL del WebSocket', cfg.apiUrl);
+    return;
+  }
 
+  registrar('info', 'widget', `Conectando WS (intento ${ws.intentos + 1})`, url);
   const socket = new WebSocket(url);
   ws.socket = socket;
 
   socket.onopen = () => {
     ws.listo = true;
     ws.intentos = 0;
+    registrar('info', 'servidor', 'WS abierto');
     enviarConfigWs();
     if (captura.activa) setEstado('Escuchando (ws)', 'ok');
   };
 
   socket.onmessage = (evento) => {
     let mensaje;
-    try { mensaje = JSON.parse(evento.data); } catch { return; }
+    try { mensaje = JSON.parse(evento.data); } catch {
+      registrar('warn', 'servidor', 'WS recibió un mensaje no JSON');
+      return;
+    }
     manejarMensajeWs(mensaje);
   };
 
-  socket.onerror = () => { /* onclose llega justo después */ };
+  socket.onerror = () => {
+    registrar('warn', 'red', 'WS error de transporte (el cierre llega a continuación)');
+  };
 
-  socket.onclose = () => {
+  socket.onclose = (evento) => {
     ws.listo = false;
     ws.socket = null;
+    const cierre = explicarCierreWs(evento.code, evento.reason);
+    registrar(evento.code === 1000 ? 'info' : 'warn', cierre.origen, cierre.texto);
     if (!captura.activa) return;
     // Mientras se reconecta, los fragmentos van por HTTP: no se pierde nada.
     const espera = Math.min(WS_REINTENTO_MAX_MS, 1000 * 2 ** ws.intentos);
     ws.intentos += 1;
+    registrar('info', 'widget', `Reintento WS en ${Math.round(espera / 1000)} s; fragmentos por HTTP`);
     ws.timer = setTimeout(conectarWs, espera);
+  };
+}
+
+function explicarCierreWs(code, reason) {
+  const mapa = {
+    1000: 'cierre normal',
+    1001: 'el servidor se fue',
+    1006: 'corte de red o el túnel cayó (sin cierre limpio)',
+    1011: 'error interno del servidor',
+    1012: 'el servidor se reinició',
+    1013: 'servidor saturado'
+  };
+  const origen = code === 1011 ? 'servidor' : (code === 1000 ? 'servidor' : 'red');
+  const por = mapa[code] || 'código desconocido';
+  return {
+    origen,
+    texto: `WS cerrado (${code}: ${por})${reason ? ` · ${reason}` : ''}`
   };
 }
 
@@ -314,6 +509,9 @@ function cerrarWs() {
   if (ws.socket) {
     const socket = ws.socket;
     ws.socket = null;
+    socket.onopen = null;
+    socket.onmessage = null;
+    socket.onerror = null;
     socket.onclose = null;
     try { socket.close(); } catch { /* ya cerrado */ }
   }
@@ -321,6 +519,12 @@ function cerrarWs() {
 
 function manejarMensajeWs(mensaje) {
   switch (mensaje.type) {
+    case 'ready':
+      registrar('info', 'servidor', `WS listo · ${mensaje.device ?? '?'} · ${mensaje.model ?? '?'}`);
+      break;
+    case 'config_ok':
+      registrar('info', 'servidor', `Config OK lang=${mensaje.language ?? 'auto'} → ${mensaje.target_lang ?? '?'}`);
+      break;
     case 'result': {
       fallosSeguidos = 0;
       const texto = (mensaje.translation || mensaje.text || '').trim();
@@ -328,16 +532,27 @@ function manejarMensajeWs(mensaje) {
       if (captura.activa) {
         setEstado(`Escuchando (ws · ${mensaje.total_ms} ms)`, 'ok');
       }
+      registrar(
+        'info',
+        'servidor',
+        `WS result #${mensaje.seq ?? '?'} ${mensaje.total_ms} ms`,
+        `${mensaje.language ?? '?'} ${mensaje.audio_s ?? '?'}s`
+      );
       break;
     }
+    case 'empty':
+      registrar('info', 'servidor', `WS empty #${mensaje.seq ?? '?'}`);
+      break;
     case 'dropped':
+      registrar('warn', 'servidor', `GPU saturada, descartados: ${(mensaje.seqs || []).join(',')}`);
       setEstado(`Backend saturado: ${mensaje.seqs.length} fragmento(s) descartado(s)`, 'error');
       break;
     case 'error':
-      console.error('[widget] backend:', mensaje.detail);
+      registrar('error', 'servidor', `WS error #${mensaje.seq ?? '-'}`, mensaje.detail || 'sin detalle');
+      setEstado(`Error del servidor: ${String(mensaje.detail || 'sin detalle').slice(0, 80)}`, 'error');
       break;
     default:
-      break;   // ready, config_ok, empty, pong
+      break;   // pong
   }
 }
 
@@ -345,35 +560,61 @@ function manejarMensajeWs(mensaje) {
 // fragmentos pueden resolverse fuera de orden y los subtítulos se desordenan.
 // Por WebSocket el orden lo garantiza la propia conexión.
 async function enviarFragmento(blob) {
+  seqLocal += 1;
+  const seq = seqLocal;
+  const kb = Math.max(1, Math.round(blob.size / 1024));
   if (ws.listo) {
     try {
       ws.socket.send(await blob.arrayBuffer());
+      registrar('info', 'widget', `frag #${seq} ${kb} kB por WS`);
       return;
     } catch (error) {
-      console.warn('[widget] fallo enviando por ws, se usa HTTP:', error);
+      registrar('warn', 'widget', `frag #${seq} WS falló, se usa HTTP`, error.message);
     }
+  } else {
+    registrar('info', 'widget', `frag #${seq} ${kb} kB por HTTP (WS no listo)`);
   }
-  encolarEnvio(blob);
+  encolarEnvio(blob, seq);
 }
 
-function encolarEnvio(blob) {
-  cola = cola.then(() => enviar(blob)).catch((error) => {
+function encolarEnvio(blob, seq) {
+  cola = cola.then(() => enviar(blob, seq)).catch((error) => {
     console.error('[widget] envio fallido:', error);
   });
 }
 
-async function enviar(blob) {
+async function enviar(blob, seq) {
   const formData = new FormData();
   formData.append('file', blob, 'chunk.webm');
   formData.append('target_lang', cfg.targetLang);
+  const t0 = performance.now();
+  const kb = Math.max(1, Math.round(blob.size / 1024));
 
   try {
     const respuesta = await fetch(cfg.apiUrl, { method: 'POST', body: formData });
-    if (!respuesta.ok) throw new Error(`HTTP ${respuesta.status}`);
+    const ms = Math.round(performance.now() - t0);
+    if (!respuesta.ok) {
+      const detalle = await cuerpoError(respuesta);
+      const origen = origenHttp(respuesta.status);
+      const quien = origen === 'tunel' ? 'túnel Cloudflare' : 'servidor';
+      registrar(
+        'error',
+        origen,
+        `HTTP ${respuesta.status} frag #${seq} ${kb} kB (${ms} ms) · ${quien}`,
+        detalle || 'sin cuerpo'
+      );
+      fallosSeguidos += 1;
+      const corto = (detalle || quien).slice(0, 70);
+      setEstado(`Error ${respuesta.status} (${quien}): ${corto}`, 'error');
+      const err = new Error(`HTTP ${respuesta.status}: ${detalle}`);
+      err.yaRegistrado = true;
+      throw err;
+    }
 
     const datos = await respuesta.json();
     fallosSeguidos = 0;
     if (captura.activa && !ws.listo) setEstado('Escuchando (http)', 'ok');
+    registrar('info', 'servidor', `HTTP 200 frag #${seq} (${ms} ms)`, `${datos.segments?.length ?? 0} segmento(s)`);
 
     if (!datos.success || !datos.segments?.length) return;
 
@@ -384,8 +625,12 @@ async function enviar(blob) {
 
     if (texto) mostrarSubtitulo(texto);
   } catch (error) {
-    fallosSeguidos += 1;
-    setEstado(`Backend sin respuesta (${fallosSeguidos})`, 'error');
+    if (!error.yaRegistrado) {
+      fallosSeguidos += 1;
+      const ms = Math.round(performance.now() - t0);
+      registrar('error', 'red', `Sin respuesta frag #${seq} (${ms} ms, fallo ${fallosSeguidos})`, error.message);
+      setEstado(`Sin red (${fallosSeguidos}): ${error.message}`, 'error');
+    }
     throw error;
   }
 }
@@ -411,20 +656,39 @@ ui.selDispositivo.addEventListener('change', async () => {
   if (captura.activa) { await detener(); await iniciar(); }
 });
 
-const ALTO_CON_AJUSTES = 520;
-let altoPlegado = null;
-
 ui.btnAjustes.addEventListener('click', () => {
   const abriendo = ui.ajustes.hidden;
   ui.ajustes.hidden = !abriendo;
   ui.btnAjustes.classList.toggle('encendido', abriendo);
+  sincronizarAlto();
+});
 
+ui.btnLogs.addEventListener('click', () => {
+  const abriendo = ui.logs.hidden;
+  ui.logs.hidden = !abriendo;
+  ui.btnLogs.classList.toggle('encendido', abriendo);
   if (abriendo) {
-    altoPlegado = window.outerHeight;
-    window.widget.setAlto(Math.max(ALTO_CON_AJUSTES, altoPlegado));
-  } else if (altoPlegado) {
-    window.widget.setAlto(altoPlegado);
+    erroresSinVer = 0;
+    ui.btnLogs.classList.remove('alerta');
+    ui.btnLogs.title = 'Registro de eventos';
+    ui.logLista.scrollTop = ui.logLista.scrollHeight;
   }
+  sincronizarAlto();
+});
+
+ui.btnLogCopiar.addEventListener('click', async () => {
+  const texto = logsMem.map(formatearLinea).join('\n');
+  await window.widget.escribirPortapapeles(texto || '(vacío)');
+  setEstado('Registro copiado', 'ok');
+});
+
+ui.btnLogAbrir.addEventListener('click', () => window.widget.abrirLog());
+
+ui.btnLogVaciar.addEventListener('click', async () => {
+  logsMem.length = 0;
+  ui.logLista.innerHTML = '';
+  await window.widget.vaciarLog();
+  registrar('info', 'widget', 'Registro vaciado');
 });
 
 ui.btnFantasma.addEventListener('click', () => {
@@ -469,13 +733,16 @@ function urlValida(texto) {
 function guardarUrl(texto) {
   if (!urlValida(texto)) {
     setEstado('URL no valida: debe empezar por http:// o https://', 'error');
+    registrar('error', 'widget', 'URL no válida', texto);
     return false;
   }
   ui.inpApi.value = texto;
   guardar({ apiUrl: texto });
   setEstado('Backend guardado', 'ok');
+  registrar('info', 'widget', 'Backend actualizado', texto);
   // Con la captura en marcha, el ws se reabre contra la URL nueva.
-  if (captura.activa) { cerrarWs(); conectarWs(); }
+  if (captura.activa) { cerrarWs(); conectarWs(); comprobarSalud(); }
+  else comprobarSalud();
   return true;
 }
 
@@ -541,6 +808,15 @@ window.widget.onAtajo((nombre) => {
 
   aplicarEstilos();
   ui.subtitulo.textContent = 'Pulsa Escuchar para empezar';
+
+  try {
+    const ruta = await window.widget.rutaLog();
+    ui.logRuta.textContent = ruta;
+    ui.logRuta.title = ruta;
+  } catch { /* el archivo se crea al primer evento */ }
+
+  registrar('info', 'widget', 'Widget iniciado', `backend=${cfg.apiUrl}`);
+  comprobarSalud();
 
   if (cfg.fuente === 'device') await enumerarDispositivos();
   navigator.mediaDevices.addEventListener('devicechange', () => {

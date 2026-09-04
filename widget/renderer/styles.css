@@ -90,14 +90,24 @@ select option { background: #14171f; }
   color: var(--tenue);
 }
 
+.btn-logs {
+  width: auto;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .icono-btn.encendido { color: var(--acento); border-color: rgba(0, 255, 102, 0.45); }
+.icono-btn.alerta { color: #ff7b72; border-color: rgba(255, 123, 114, 0.55); }
 .cerrar:hover { background: #c0392b; color: #fff; border-color: #c0392b; }
 
 .estado {
   font-size: 12px;
   color: var(--tenue);
   white-space: nowrap;
-  max-width: 260px;
+  max-width: 340px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -165,6 +175,102 @@ input[type="range"] { accent-color: var(--acento); cursor: pointer; }
 }
 
 .ayuda strong { color: var(--texto); }
+
+/* ---------- registro de eventos ---------- */
+
+#logs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 170px;
+  max-height: 240px;
+  padding: 10px 12px;
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+
+#logs[hidden] { display: none; }
+
+.logs-cabecera {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logs-cabecera strong { font-size: 12px; }
+
+.logs-ruta {
+  flex: 1;
+  min-width: 0;
+  color: var(--tenue);
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: text;
+  cursor: text;
+}
+
+.logs-acciones { display: flex; gap: 6px; }
+.logs-acciones button { padding: 3px 8px; font-size: 11px; }
+
+.logs-leyenda {
+  margin: 0;
+  color: var(--tenue);
+  font-size: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+}
+
+#logLista {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  font-family: Consolas, "Cascadia Mono", "Segoe UI Mono", monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  user-select: text;
+  cursor: text;
+}
+
+#logLista li {
+  display: grid;
+  grid-template-columns: 86px 72px 1fr;
+  gap: 8px;
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+#logLista time { color: var(--tenue); font-variant-numeric: tabular-nums; }
+
+.log-msg { min-width: 0; overflow-wrap: anywhere; }
+
+.log-origen {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.log-origen.servidor { color: #ffb089; background: rgba(255, 123, 70, 0.16); }
+.log-origen.tunel { color: #c4b5fd; background: rgba(167, 139, 250, 0.16); }
+.log-origen.red { color: #e3b341; background: rgba(227, 179, 65, 0.16); }
+.log-origen.widget { color: #8b9cb3; background: rgba(255, 255, 255, 0.06); }
+
+.log-error .log-msg { color: #ff7b72; }
+.log-warn .log-msg { color: #e3b341; }
+.log-info .log-msg { color: var(--texto); }
 
 /* ---------- subtítulos ---------- */
 
