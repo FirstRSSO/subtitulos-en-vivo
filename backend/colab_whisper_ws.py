@@ -1,5 +1,5 @@
 # Backend de transcripción para el widget de escritorio (Windows).
-# Pegar cada bloque "CELDA" en una celda de Google Colab (GPU T4 o mejor).
+# Pegar cada bloque "CELDA" en una celda de Google Colab o Kaggle (ideal: GPU T4 o mejor).
 #
 # Qué cambia respecto a la versión anterior, y por qué:
 #   - /ws (WebSocket): una sola conexión por sesión de escucha. Se ahorra el
@@ -75,17 +75,48 @@ from faster_whisper.audio import decode_audio
 from deep_translator import GoogleTranslator
 
 # ---------- Hardware ----------
-device = "cuda" if torch.cuda.is_available() else "cpu"
-compute_type = "float16" if device == "cuda" else "int8"
+# CTranslate2 (faster-whisper) solo hace float16 eficiente en Volta+ (sm_70: T4, V100, A100…).
+# La Tesla P100 de Kaggle es Pascal (sm_60): float16 lanza ValueError. Usar int8 / float32.
 model_size = "turbo"
 
-print(f"¿Usando GPU?: {'SÍ' if device == 'cuda' else 'NO (Usando CPU)'}")
-if device == "cuda":
-    print(f"GPU detectada: {torch.cuda.get_device_name(0)}")
 
-print(f"Cargando modelo: {model_size}...")
-model = WhisperModel(model_size, device=device, compute_type=compute_type)
-print(f"Modelo {model_size} cargado.")
+def _load_whisper():
+    """Elige device/compute_type según la GPU y reintenta si CTranslate2 los rechaza."""
+    candidates = []
+    if torch.cuda.is_available():
+        name = torch.cuda.get_device_name(0)
+        major, minor = torch.cuda.get_device_capability(0)
+        print(f"GPU detectada: {name} (sm_{major}{minor})")
+        if major >= 7:
+            candidates.append(("cuda", "float16"))
+        else:
+            print(
+                f"Esta GPU (compute {major}.{minor}) no soporta float16 eficiente. "
+                "En Kaggle, si puedes, cambia el acelerador a GPU T4."
+            )
+        # int8_float16 también exige sm_70+; en P100 hay que usar int8/float32.
+        candidates.extend([("cuda", "int8"), ("cuda", "int8_float32"), ("cuda", "float32")])
+    candidates.append(("cpu", "int8"))
+
+    last_err = None
+    seen = set()
+    for dev, ctype in candidates:
+        if (dev, ctype) in seen:
+            continue
+        seen.add((dev, ctype))
+        try:
+            print(f"Cargando modelo: {model_size} en {dev} ({ctype})...")
+            loaded = WhisperModel(model_size, device=dev, compute_type=ctype)
+            print(f"Modelo {model_size} cargado en {dev} ({ctype}).")
+            return loaded, dev, ctype
+        except (ValueError, RuntimeError) as err:
+            print(f"  No usable {dev}/{ctype}: {err}")
+            last_err = err
+    raise last_err
+
+
+model, device, compute_type = _load_whisper()
+print(f"¿Usando GPU?: {'SÍ' if device == 'cuda' else 'NO (Usando CPU)'}")
 
 # Warm-up: la primera inferencia es lenta (carga de kernels CUDA).
 # Si el kernel muere aquí, el problema es cuDNN/CUDA, no el servidor.
