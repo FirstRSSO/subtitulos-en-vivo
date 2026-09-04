@@ -1,12 +1,16 @@
 const $ = (id) => document.getElementById(id);
 
 const ui = {
+  app: $('app'),
   btnEscuchar: $('btnEscuchar'), txtEscuchar: $('txtEscuchar'),
   selFuente: $('selFuente'), selDispositivo: $('selDispositivo'),
   estado: $('estado'), subtitulo: $('subtitulo'),
   medidor: $('medidorRelleno'), barra: $('barra'),
   ajustes: $('ajustes'), btnAjustes: $('btnAjustes'), btnFantasma: $('btnFantasma'),
-  btnMin: $('btnMin'), btnCerrar: $('btnCerrar'),
+  btnCompacto: $('btnCompacto'), btnMin: $('btnMin'), btnCerrar: $('btnCerrar'),
+  cinta: $('cinta'), cintaEstado: $('cintaEstado'),
+  btnCintaEscuchar: $('btnCintaEscuchar'), btnCintaOpciones: $('btnCintaOpciones'),
+  btnCintaCerrar: $('btnCintaCerrar'),
   inpApi: $('inpApi'), btnPegar: $('btnPegar'), selIdioma: $('selIdioma'),
   inpFuente: $('inpFuente'), inpOpacidad: $('inpOpacidad'),
   inpMin: $('inpMin'), inpMax: $('inpMax'), inpUmbral: $('inpUmbral'),
@@ -45,6 +49,51 @@ function setEstado(texto, tipo = '') {
   ui.estado.textContent = texto;
   ui.estado.title = texto;
   ui.estado.className = `estado ${tipo}`;
+  ui.cintaEstado.textContent = texto;
+  ui.cintaEstado.title = texto;
+  ui.cintaEstado.className = `estado ${tipo}`;
+}
+
+function pintarCaptura() {
+  const activo = captura.activa;
+  ui.btnEscuchar.classList.toggle('activo', activo);
+  ui.txtEscuchar.textContent = activo ? 'Detener' : 'Escuchar';
+  ui.btnEscuchar.querySelector('.icono').innerHTML = activo ? '&#9632;' : '&#9654;';
+  ui.btnCintaEscuchar.classList.toggle('activo', activo);
+  ui.btnCintaEscuchar.querySelector('.icono').innerHTML = activo ? '&#9632;' : '&#9654;';
+  ui.app.classList.toggle('escuchando', activo);
+}
+
+function altoCompacto() {
+  return Math.round(Math.max(56, (cfg.fontSize || 24) * 1.45 + 36));
+}
+
+async function setCompacto(activo, { animar = true } = {}) {
+  const ir = Boolean(activo);
+  const ya = ui.app.classList.contains('compacto');
+  if (ir) {
+    ui.ajustes.hidden = true;
+    ui.logs.hidden = true;
+    ui.btnAjustes.classList.remove('encendido');
+    ui.btnLogs.classList.remove('encendido');
+    altoPlegado = null;
+    if (animar && !ya) await guardar({ compacto: true, altoOpciones: window.outerHeight });
+    else await guardar({ compacto: true });
+    ui.app.classList.add('compacto');
+    ui.btnCompacto.classList.add('encendido');
+    await window.widget.setMinimos(true);
+    if (animar && !ya) {
+      const alto = cfg.altoCompacto > 0 ? cfg.altoCompacto : altoCompacto();
+      await window.widget.setAlto(alto, true);
+    }
+  } else {
+    if (animar && ya) await guardar({ compacto: false, altoCompacto: window.outerHeight });
+    else await guardar({ compacto: false });
+    ui.app.classList.remove('compacto');
+    ui.btnCompacto.classList.remove('encendido');
+    await window.widget.setMinimos(false);
+    if (animar && ya) await window.widget.setAlto(Math.max(140, cfg.altoOpciones || 210), true);
+  }
 }
 
 function mostrarSubtitulo(texto) {
@@ -235,6 +284,7 @@ async function comprobarSalud() {
 }
 
 function sincronizarAlto() {
+  if (cfg.compacto) return;
   const ajustes = !ui.ajustes.hidden;
   const logs = !ui.logs.hidden;
   if (!ajustes && !logs) {
@@ -342,9 +392,7 @@ async function iniciar() {
     captura.stream.getAudioTracks()[0].addEventListener('ended', () => detener());
 
     captura.activa = true;
-    ui.btnEscuchar.classList.add('activo');
-    ui.txtEscuchar.textContent = 'Detener';
-    ui.btnEscuchar.querySelector('.icono').innerHTML = '&#9632;';
+    pintarCaptura();
     setEstado('Escuchando', 'ok');
     fallosSeguidos = 0;
     registrar('info', 'widget', 'Captura activa', cfg.fuente === 'device' ? `dispositivo=${cfg.deviceId}` : 'loopback');
@@ -438,9 +486,7 @@ async function detener() {
   }
   captura.audioCtx = null;
 
-  ui.btnEscuchar.classList.remove('activo');
-  ui.txtEscuchar.textContent = 'Escuchar';
-  ui.btnEscuchar.querySelector('.icono').innerHTML = '&#9654;';
+  pintarCaptura();
   ui.medidor.style.width = '0%';
   setEstado('Listo');
   if (estabaActiva) registrar('info', 'widget', 'Captura detenida');
@@ -688,7 +734,7 @@ async function enviar(blob, seq) {
 
 function guardar(parcial) {
   Object.assign(cfg, parcial);
-  window.widget.guardarConfig(parcial);
+  return window.widget.guardarConfig(parcial);
 }
 
 ui.btnEscuchar.addEventListener('click', () => (captura.activa ? detener() : iniciar()));
@@ -747,11 +793,23 @@ ui.btnFantasma.addEventListener('click', () => {
   setEstado(fantasma ? 'Modo fantasma activo' : 'Listo');
 });
 
+ui.btnCompacto.addEventListener('click', () => setCompacto(!cfg.compacto));
+ui.btnCintaOpciones.addEventListener('click', () => setCompacto(false));
+ui.btnCintaEscuchar.addEventListener('click', () => (captura.activa ? detener() : iniciar()));
+ui.btnCintaCerrar.addEventListener('click', () => window.widget.cerrar());
+ui.subtitulo.addEventListener('dblclick', () => setCompacto(!cfg.compacto));
+
 // Con click-through activo la ventana ignora el raton, asi que no habria forma
 // de volver a pulsar los botones: al pasar el cursor por la barra lo levantamos.
 document.addEventListener('mousemove', (e) => {
   if (!fantasma) return;
-  const dentro = e.clientY <= ui.barra.getBoundingClientRect().bottom;
+  let dentro;
+  if (cfg.compacto) {
+    const r = ui.app.getBoundingClientRect();
+    dentro = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+  } else {
+    dentro = e.clientY <= ui.barra.getBoundingClientRect().bottom;
+  }
   if (dentro !== sobreLaBarra) {
     sobreLaBarra = dentro;
     window.widget.setClickThrough(!dentro, false);
@@ -760,6 +818,31 @@ document.addEventListener('mousemove', (e) => {
 
 ui.btnMin.addEventListener('click', () => window.widget.minimizar());
 ui.btnCerrar.addEventListener('click', () => window.widget.cerrar());
+
+let redimensionando = false;
+for (const asa of document.querySelectorAll('#resizers [data-edge]')) {
+  asa.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    redimensionando = true;
+    asa.setPointerCapture(e.pointerId);
+    window.widget.iniciarResize(asa.dataset.edge);
+  });
+  const soltar = (e) => {
+    try { asa.releasePointerCapture(e.pointerId); } catch { /* ya suelta */ }
+    if (!redimensionando) return;
+    redimensionando = false;
+    window.widget.finResize();
+  };
+  asa.addEventListener('pointerup', soltar);
+  asa.addEventListener('pointercancel', soltar);
+}
+window.addEventListener('blur', () => {
+  if (!redimensionando) return;
+  redimensionando = false;
+  window.widget.finResize();
+});
 
 function normalizarUrl(texto) {
   const limpio = texto.trim();
@@ -830,6 +913,7 @@ for (const [input, clave, salida, formato] of deslizadores) {
 
 window.widget.onAtajo((nombre) => {
   if (nombre === 'toggle') captura.activa ? detener() : iniciar();
+  if (nombre === 'compacto') setCompacto(!cfg.compacto);
 });
 
 /* ------------------------- arranque ------------------------- */
@@ -857,6 +941,7 @@ window.widget.onAtajo((nombre) => {
 
   aplicarEstilos();
   ui.subtitulo.textContent = 'Pulsa Escuchar para empezar';
+  await setCompacto(Boolean(cfg.compacto), { animar: false });
 
   try {
     const ruta = await window.widget.rutaLog();

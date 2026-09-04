@@ -20,12 +20,18 @@ npm start
 | **Escuchar** | Inicia o detiene la captura (`Ctrl+Shift+T` desde cualquier aplicación) |
 | **Audio del sistema / Dispositivo** | Origen del audio |
 | ⚙ | Panel de ajustes |
+| ▬ | Solo subtítulos: oculta los controles y deja la barra de letras |
 | ◉ | Modo fantasma: los clics atraviesan el widget (pasa el ratón por la barra para recuperarlo) |
 | **log** | Registro de eventos: distingue si un error es del servidor, del túnel o de la red |
+| `Ctrl+Shift+B` | Alternar solo subtítulos / controles |
 | `Ctrl+Shift+H` | Ocultar / mostrar el widget |
 
-La ventana se arrastra por la zona vacía de la barra y se redimensiona por los
-bordes. Posición, tamaño y ajustes se guardan en `%APPDATA%/traductor-audios-widget/config.json`.
+La ventana se arrastra por la zona vacía de la barra. Como es transparente y
+sin marco, el tamaño se cambia **desde las esquinas o los bordes** (marcadas
+con un ángulo claro). En modo solo subtítulos, pasa el ratón por la barra
+para recuperar Escuchar y las opciones; también vale un doble clic en el
+texto. Posición, tamaño y ajustes se guardan en
+`%APPDATA%/traductor-audios-widget/config.json`.
 
 ## Traducir un programa concreto
 

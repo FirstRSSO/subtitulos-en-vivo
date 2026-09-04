@@ -21,6 +21,7 @@ html, body {
 }
 
 #app {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -40,6 +41,8 @@ html, body {
   border-radius: 10px;
   backdrop-filter: blur(8px);
   flex: 0 0 auto;
+  position: relative;
+  z-index: 12;
 }
 
 .arrastrable {
@@ -49,7 +52,8 @@ html, body {
 }
 
 #barra button,
-#barra select { -webkit-app-region: no-drag; }
+#barra select,
+#cinta button { -webkit-app-region: no-drag; }
 
 button, select, input[type="text"] {
   font: inherit;
@@ -292,3 +296,107 @@ input[type="range"] { accent-color: var(--acento); cursor: pointer; }
 }
 
 #subtitulo.oculto { opacity: 0.25; color: var(--tenue); font-size: 14px; }
+
+/* ---------- modo compacto: solo la barra de letras ---------- */
+
+#cinta {
+  display: none;
+}
+
+#app.compacto {
+  gap: 0;
+  padding: 6px;
+}
+
+#app.compacto::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: 18px;
+  right: 18px;
+  height: 8px;
+  z-index: 7;
+  -webkit-app-region: drag;
+}
+
+#app.compacto #barra,
+#app.compacto #ajustes,
+#app.compacto #logs { display: none !important; }
+
+#app.compacto #subtitulo {
+  flex: 1 1 auto;
+  padding: 10px 18px;
+  min-height: 0;
+}
+
+#app.compacto.escuchando #subtitulo {
+  box-shadow: inset 0 2px 0 var(--acento);
+}
+
+#app.compacto #cinta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  right: 6px;
+  z-index: 12;
+  padding: 4px 6px;
+  background: var(--fondo);
+  border: 1px solid var(--borde);
+  border-radius: 10px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+#app.compacto:hover #cinta,
+#app.compacto #cinta:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#cinta .principal { padding: 4px 8px; }
+#cinta .estado { max-width: 180px; }
+
+/* ---------- asas de redimensionado (ventana transparente) ---------- */
+
+#resizers {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+}
+
+#resizers [data-edge] {
+  position: absolute;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+
+#resizers [data-edge="n"]  { top: 0; left: 14px; right: 14px; height: 6px; cursor: ns-resize; }
+#resizers [data-edge="s"]  { bottom: 0; left: 14px; right: 14px; height: 6px; cursor: ns-resize; }
+#resizers [data-edge="e"]  { right: 0; top: 14px; bottom: 14px; width: 6px; cursor: ew-resize; }
+#resizers [data-edge="w"]  { left: 0; top: 14px; bottom: 14px; width: 6px; cursor: ew-resize; }
+#resizers [data-edge="ne"] { top: 0; right: 0; width: 16px; height: 16px; cursor: nesw-resize; }
+#resizers [data-edge="nw"] { top: 0; left: 0; width: 16px; height: 16px; cursor: nwse-resize; }
+#resizers [data-edge="se"] { bottom: 0; right: 0; width: 18px; height: 18px; cursor: nwse-resize; }
+#resizers [data-edge="sw"] { bottom: 0; left: 0; width: 16px; height: 16px; cursor: nesw-resize; }
+
+#resizers [data-edge="se"]::after,
+#resizers [data-edge="sw"]::after,
+#resizers [data-edge="ne"]::after,
+#resizers [data-edge="nw"]::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  pointer-events: none;
+}
+
+#resizers [data-edge="se"]::after { right: 3px; bottom: 3px; border-top: 0; border-left: 0; }
+#resizers [data-edge="sw"]::after { left: 3px; bottom: 3px; border-top: 0; border-right: 0; }
+#resizers [data-edge="ne"]::after { right: 3px; top: 3px; border-bottom: 0; border-left: 0; }
+#resizers [data-edge="nw"]::after { left: 3px; top: 3px; border-bottom: 0; border-right: 0; }

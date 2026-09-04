@@ -29,6 +29,7 @@
 
       <button id="btnAjustes" class="icono-btn" title="Ajustes">&#9881;</button>
       <button id="btnLogs" class="icono-btn btn-logs" title="Registro: ver si el error es del servidor, el t&#250;nel o el widget">log</button>
+      <button id="btnCompacto" class="icono-btn" title="Solo subtítulos (Ctrl+Shift+B)">&#9644;</button>
       <button id="btnFantasma" class="icono-btn" title="Modo fantasma: deja pasar los clics">&#9673;</button>
       <button id="btnMin" class="icono-btn" title="Minimizar">&#8211;</button>
       <button id="btnCerrar" class="icono-btn cerrar" title="Cerrar">&#10005;</button>
@@ -91,6 +92,9 @@
         Para traducir <strong>un solo programa</strong>: instala VB-CABLE, envía esa aplicación
         al cable desde <em>Configuración &rsaquo; Sistema &rsaquo; Sonido &rsaquo; Preferencias de volumen
         y dispositivos</em>, y elige aquí <em>CABLE Output</em> como dispositivo.
+        <br><br>
+        <strong>Solo subtítulos</strong> (botón ▬ o <em>Ctrl+Shift+B</em>) oculta los controles.
+        Pasa el ratón por la barra para recuperarlos. Redimensiona el widget desde las esquinas o los bordes.
       </p>
     </section>
 
@@ -114,6 +118,27 @@
     </section>
 
     <div id="subtitulo" class="oculto"></div>
+
+    <div id="cinta">
+      <button id="btnCintaEscuchar" class="principal" title="Escuchar (Ctrl+Shift+T)">
+        <span class="icono">&#9654;</span>
+      </button>
+      <span id="cintaEstado" class="estado">Listo</span>
+      <div class="arrastrable"></div>
+      <button id="btnCintaOpciones" class="icono-btn" title="Mostrar opciones">&#9776;</button>
+      <button id="btnCintaCerrar" class="icono-btn cerrar" title="Cerrar">&#10005;</button>
+    </div>
+
+    <div id="resizers" aria-hidden="true">
+      <div data-edge="n"></div>
+      <div data-edge="s"></div>
+      <div data-edge="e"></div>
+      <div data-edge="w"></div>
+      <div data-edge="ne"></div>
+      <div data-edge="nw"></div>
+      <div data-edge="se"></div>
+      <div data-edge="sw"></div>
+    </div>
   </div>
 
   <script src="renderer.js"></script>

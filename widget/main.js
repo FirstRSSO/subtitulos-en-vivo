@@ -18,12 +18,20 @@ const DEFAULTS = {
   fontSize: 24,
   opacidad: 0.85,
   clickThrough: false,
+  compacto: false,           // solo la barra de subtítulos
+  altoOpciones: 210,         // altura al volver a mostrar controles
+  altoCompacto: 0,           // altura de la barra de letras si el usuario la estiró
   bounds: null
 };
+
+const MIN_COMPLETO = { width: 420, height: 140 };
+const MIN_COMPACTO = { width: 240, height: 52 };
 
 let win = null;
 let config = { ...DEFAULTS };
 let ajustandoPanel = false;
+let resizeEstado = null;
+let resizeTimer = null;
 
 const rutaConfig = () => path.join(app.getPath('userData'), 'config.json');
 const rutaLog = () => path.join(app.getPath('userData'), 'widget.log');
@@ -74,18 +82,26 @@ function posicionInicial() {
   };
 }
 
+function aplicarMinimos(compacto) {
+  if (!win || win.isDestroyed()) return;
+  const m = compacto ? MIN_COMPACTO : MIN_COMPLETO;
+  win.setMinimumSize(m.width, m.height);
+}
+
 function crearVentana() {
   const bounds = config.bounds ?? posicionInicial();
+  const min = config.compacto ? MIN_COMPACTO : MIN_COMPLETO;
 
   win = new BrowserWindow({
     ...bounds,
-    minWidth: 420,
-    minHeight: 140,
+    minWidth: min.width,
+    minHeight: min.height,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
     hasShadow: false,
     resizable: true,
+    maximizable: false,
     skipTaskbar: false,
     title: 'Traductor de Audios',
     webPreferences: {
@@ -104,8 +120,13 @@ function crearVentana() {
   const recordarBounds = () => {
     // El crecimiento temporal por el panel de ajustes no debe quedar guardado
     // como tamaño preferido del widget.
-    if (ajustandoPanel) return;
-    if (win && !win.isDestroyed()) guardarConfig({ bounds: win.getBounds() });
+    if (ajustandoPanel || resizeEstado) return;
+    if (!win || win.isDestroyed()) return;
+    const bounds = win.getBounds();
+    const extra = config.compacto
+      ? { altoCompacto: bounds.height }
+      : { altoOpciones: bounds.height };
+    guardarConfig({ bounds, ...extra });
   };
   win.on('moved', recordarBounds);
   win.on('resized', recordarBounds);
@@ -149,7 +170,8 @@ function registrarAtajos() {
     'CommandOrControl+Shift+H': () => {
       if (!win) return;
       win.isVisible() ? win.hide() : win.show();
-    }
+    },
+    'CommandOrControl+Shift+B': () => win?.webContents.send('atajo', 'compacto')
   };
 
   for (const [combinacion, accion] of Object.entries(atajos)) {
@@ -171,7 +193,10 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => app.quit());
-app.on('will-quit', () => globalShortcut.unregisterAll());
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+  if (resizeTimer) clearInterval(resizeTimer);
+});
 
 ipcMain.handle('config:leer', () => config);
 ipcMain.handle('config:guardar', (_evento, parcial) => guardarConfig(parcial));
@@ -206,7 +231,7 @@ ipcMain.handle('log:abrir', () => {
 
 // El panel de ajustes no cabe en la altura normal del widget: al abrirlo la
 // ventana crece hacia arriba y al cerrarlo recupera su tamaño.
-ipcMain.handle('ventana:alto', (_evento, alto) => {
+ipcMain.handle('ventana:alto', (_evento, alto, persistir = false) => {
   if (!win || win.isDestroyed()) return;
 
   const actual = win.getBounds();
@@ -220,6 +245,66 @@ ipcMain.handle('ventana:alto', (_evento, alto) => {
   ajustandoPanel = true;
   win.setBounds({ x: actual.x, y, width: actual.width, height: nuevoAlto });
   ajustandoPanel = false;
+  if (persistir) {
+    const bounds = win.getBounds();
+    const extra = config.compacto
+      ? { altoCompacto: bounds.height }
+      : { altoOpciones: bounds.height };
+    guardarConfig({ bounds, ...extra });
+  }
+});
+
+ipcMain.handle('ventana:minimos', (_evento, compacto) => {
+  aplicarMinimos(Boolean(compacto));
+});
+
+// La ventana es transparente y sin marco: Windows no entrega asas nativas.
+// El renderer manda el borde (n/s/e/w/ne/…) y aquí seguimos el cursor.
+ipcMain.on('ventana:resize-inicio', (_evento, edge) => {
+  if (!win || win.isDestroyed()) return;
+  const [minW, minH] = win.getMinimumSize();
+  resizeEstado = {
+    edge: String(edge || ''),
+    cursor: screen.getCursorScreenPoint(),
+    bounds: win.getBounds(),
+    minW,
+    minH
+  };
+  if (resizeTimer) clearInterval(resizeTimer);
+  resizeTimer = setInterval(() => {
+    if (!resizeEstado || !win || win.isDestroyed()) return;
+    const cursor = screen.getCursorScreenPoint();
+    const dx = cursor.x - resizeEstado.cursor.x;
+    const dy = cursor.y - resizeEstado.cursor.y;
+    const { edge, bounds, minW, minH } = resizeEstado;
+    let { x, y, width, height } = bounds;
+    if (edge.includes('e')) width = Math.max(minW, bounds.width + dx);
+    if (edge.includes('s')) height = Math.max(minH, bounds.height + dy);
+    if (edge.includes('w')) {
+      width = Math.max(minW, bounds.width - dx);
+      x = bounds.x + bounds.width - width;
+    }
+    if (edge.includes('n')) {
+      height = Math.max(minH, bounds.height - dy);
+      y = bounds.y + bounds.height - height;
+    }
+    win.setBounds({ x, y, width, height }, false);
+  }, 16);
+});
+
+ipcMain.on('ventana:resize-fin', () => {
+  if (resizeTimer) {
+    clearInterval(resizeTimer);
+    resizeTimer = null;
+  }
+  resizeEstado = null;
+  if (win && !win.isDestroyed()) {
+    const bounds = win.getBounds();
+    const extra = config.compacto
+      ? { altoCompacto: bounds.height }
+      : { altoOpciones: bounds.height };
+    guardarConfig({ bounds, ...extra });
+  }
 });
 
 ipcMain.on('ventana:minimizar', () => win?.minimize());
