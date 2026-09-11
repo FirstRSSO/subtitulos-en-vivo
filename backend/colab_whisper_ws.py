@@ -11,9 +11,11 @@
 #   - Contexto entre fragmentos: el texto anterior se pasa como initial_prompt
 #     para que nombres, mayúsculas y puntuación sean coherentes.
 #   - Decodificación en memoria (PyAV), sin archivo temporal ni ffmpeg externo.
-#   - Traducción por el endpoint JSON de Google (gtx) con conexión keep-alive y
-#     caché: 100-200 ms en lugar de 400-800 ms de deep-translator (que queda
-#     como respaldo).
+#   - Traducción por los endpoints JSON de Google (gtx, clients5) con conexión
+#     keep-alive y caché: 100-200 ms. translate.google.com/m queda de respaldo,
+#     ya sin deep-translator: devolvía la página "Error 500" de Google como si
+#     fuera la traducción. Toda respuesta se valida y, si ninguna puerta sirve,
+#     el subtítulo es el original y el cliente recibe el motivo en mt_error.
 #   - Filtro de alucinaciones típicas de Whisper en fragmentos con música/ruido.
 #   - Si la GPU se queda atrás, se descartan los fragmentos más viejos para que
 #     el subtítulo siga "en vivo" en lugar de acumular retraso.
@@ -22,7 +24,7 @@
 # ==========================================
 # CELDA 1: Instalación de dependencias
 # ==========================================
-!pip install -q faster-whisper fastapi "uvicorn[standard]" python-multipart deep-translator requests
+!pip install -q faster-whisper fastapi "uvicorn[standard]" python-multipart requests
 # CTranslate2 (motor de faster-whisper) necesita cuDNN 9 + cuBLAS 12. Si Colab trae otra
 # versión, el kernel muere sin traceback en la primera inferencia. Se instalan vía pip.
 !pip install -q "nvidia-cudnn-cu12>=9" "nvidia-cublas-cu12"
@@ -35,6 +37,7 @@
 # CELDA 2: Carga de Modelo y Servidor
 # ==========================================
 import asyncio
+import html
 import io
 import json
 import os
@@ -44,7 +47,6 @@ import threading
 import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
-from functools import lru_cache
 
 # Cargar las librerías cuDNN/cuBLAS instaladas por pip ANTES de importar torch/ctranslate2.
 try:
@@ -72,7 +74,6 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile, WebSocket, W
 from fastapi.middleware.cors import CORSMiddleware
 from faster_whisper import WhisperModel
 from faster_whisper.audio import decode_audio
-from deep_translator import GoogleTranslator
 
 # ---------- Hardware ----------
 # CTranslate2 (faster-whisper) solo hace float16 eficiente en Volta+ (sm_70: T4, V100, A100…).
@@ -136,8 +137,8 @@ MAX_PROMPT_CHARS = 200
 QUEUE_MAX = 4              # fragmentos en espera por sesión antes de descartar los viejos
 TRANSLATE_CACHE = 512
 
-# Frases que Whisper inventa en silencio/música, o errores de traducción
-# que no deben acabar como subtítulo (p. ej. "Error 500", "That's an error").
+# Frases que Whisper inventa en silencio/música. Los "Error 500" ya no pueden
+# venir de la traducción (ver _validar), pero se dejan por si el modelo los inventa.
 HALLUCINATIONS = re.compile(
     r"^[\W\d]*("
     r"subt[ií]tulos? (realizados?|por|hechos?) .*amara\.org|"
@@ -165,52 +166,129 @@ cpu_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="cpu")
 mt_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="mt")
 
 # ---------- Traducción ----------
-GTX_URL = "https://translate.googleapis.com/translate_a/single"
+# Google Translate no tiene API gratuita oficial; se usan tres puertas no
+# oficiales, en orden. La que falla queda en cuarentena MT_COOLDOWN_S segundos
+# para no pagar su latencia en cada fragmento:
+#   gtx       translate.googleapis.com  JSON, la más rápida. Contesta 429 "Sorry"
+#             cuando la IP pasa el límite (las de Colab/Kaggle son compartidas).
+#   clients5  clients5.google.com       JSON, con un límite independiente.
+#   m         translate.google.com/m    HTML. Con User-Agent de python contesta
+#             HTTP 200 con una página "Error 500" DENTRO del div de resultado;
+#             deep-translator la devolvía tal cual como traducción. Con User-Agent
+#             de navegador funciona.
+# Toda respuesta pasa por _validar(): una página de error de Google nunca
+# llega al subtítulo.
 GTX_LANG = {"zh": "zh-CN"}  # códigos que Google escribe distinto
+MT_TIMEOUT = 6
+MT_COOLDOWN_S = 60          # segundos sin volver a probar una puerta que falló
 _http = requests.Session()
-_http.headers["User-Agent"] = "Mozilla/5.0"
+_http.headers["User-Agent"] = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+)
 _mt_cache: "OrderedDict[tuple[str, str], str]" = OrderedDict()
 _mt_cache_lock = threading.Lock()
+_mt_down: dict[str, float] = {}  # puerta -> instante (monotonic) hasta el que se omite
+_M_RESULT = re.compile(r'class="result-container">(.*?)</div>', re.S)
+_HTML_TAG = re.compile(r"<[^>]+>")
+# Firmas de la página de error de Google (título "Error 500 (Server Error)!!1",
+# "That's all we know.", id del div). Deliberadamente estrechas: "that's an error"
+# a secas puede ser una frase real.
+_GOOGLE_ERROR_PAGE = re.compile(r"af-error-page|\berror \d{3} \(|that['’]s all we know", re.I)
 
 
-@lru_cache(maxsize=32)
-def get_translator(lang: str) -> GoogleTranslator:
-    return GoogleTranslator(source="auto", target=GTX_LANG.get(lang, lang))
+class TranslationError(Exception):
+    pass
 
 
-def _translate_gtx(text: str, lang: str) -> str:
-    r = _http.get(
-        GTX_URL,
-        params={"client": "gtx", "sl": "auto", "tl": GTX_LANG.get(lang, lang), "dt": "t", "q": text},
-        timeout=6,
-    )
-    r.raise_for_status()
-    data = r.json()
-    return "".join(p[0] for p in data[0] if p and p[0]).strip()
+def _get(url: str, params: dict) -> requests.Response:
+    try:
+        r = _http.get(url, params=params, timeout=MT_TIMEOUT)
+    except requests.RequestException as e:
+        raise TranslationError(type(e).__name__) from e
+    if r.status_code != 200:
+        raise TranslationError(f"HTTP {r.status_code}")
+    return r
+
+
+def _mt_gtx(text: str, lang: str) -> str:
+    r = _get("https://translate.googleapis.com/translate_a/single",
+             {"client": "gtx", "sl": "auto", "tl": lang, "dt": "t", "q": text})
+    return "".join(p[0] for p in r.json()[0] if p and p[0])
+
+
+def _mt_clients5(text: str, lang: str) -> str:
+    r = _get("https://clients5.google.com/translate_a/t",
+             {"client": "dict-chrome-ex", "sl": "auto", "tl": lang, "q": text})
+    first = r.json()[0]  # [["traducción", "idioma detectado"]]; ["traducción"] si sl es fijo
+    return first[0] if isinstance(first, list) else first
+
+
+def _mt_mobile(text: str, lang: str) -> str:
+    r = _get("https://translate.google.com/m", {"sl": "auto", "tl": lang, "q": text})
+    m = _M_RESULT.search(r.text)
+    if not m:
+        raise TranslationError("sin div de resultado")
+    return html.unescape(_HTML_TAG.sub("", m.group(1)))
+
+
+MT_BACKENDS = (("gtx", _mt_gtx), ("clients5", _mt_clients5), ("m", _mt_mobile))
+
+
+def _validar(out: str) -> str:
+    out = out.strip()
+    if not out:
+        raise TranslationError("respuesta vacía")
+    if _GOOGLE_ERROR_PAGE.search(out):
+        raise TranslationError("página de error de Google como traducción")
+    return out
 
 
 def translate_text(text: str, lang: str) -> str:
-    """Traduce un texto. Endpoint JSON de Google con keep-alive; deep-translator de respaldo."""
+    """Traduce probando las puertas en orden. Lanza TranslationError si ninguna sirve."""
     text = text.strip()
     if not text:
         return ""
+    lang = GTX_LANG.get(lang, lang)
     key = (text, lang)
     with _mt_cache_lock:
         if key in _mt_cache:
             _mt_cache.move_to_end(key)
             return _mt_cache[key]
-    try:
-        out = _translate_gtx(text, lang)
-    except Exception:
+    now = time.monotonic()
+    backends = [b for b in MT_BACKENDS if _mt_down.get(b[0], 0) <= now]
+    if not backends:
+        # Todas en cuarentena (p. ej. un corte de red): se reintenta solo la que
+        # falló hace más tiempo, para recuperar pronto sin pagar tres timeouts.
+        backends = [min(MT_BACKENDS, key=lambda b: _mt_down.get(b[0], 0))]
+    errors = []
+    for name, fn in backends:
+        was_down = _mt_down.get(name, 0) > now
         try:
-            out = get_translator(lang).translate(text) or ""
+            out = _validar(fn(text, lang))
         except Exception as e:
-            return f"[Error de traducción: {e}]"
-    with _mt_cache_lock:
-        _mt_cache[key] = out
-        if len(_mt_cache) > TRANSLATE_CACHE:
-            _mt_cache.popitem(last=False)
-    return out
+            _mt_down[name] = time.monotonic() + MT_COOLDOWN_S
+            errors.append(f"{name}: {e}")
+            if not was_down:
+                print(f"[traducción] {name} falló ({e}); en cuarentena {MT_COOLDOWN_S} s")
+            continue
+        if was_down:
+            _mt_down.pop(name, None)
+            print(f"[traducción] {name} vuelve a funcionar")
+        with _mt_cache_lock:
+            _mt_cache[key] = out
+            if len(_mt_cache) > TRANSLATE_CACHE:
+                _mt_cache.popitem(last=False)
+        return out
+    raise TranslationError("; ".join(errors))
+
+
+def translate_or_original(text: str, lang: str) -> tuple[str, str | None]:
+    """Lo que ven los clientes: nunca un error como subtítulo, sino (original, motivo)."""
+    try:
+        return translate_text(text, lang), None
+    except TranslationError as e:
+        return text, str(e)
 
 
 def parse_langs(target_lang: str | None) -> list[str]:
@@ -299,21 +377,23 @@ async def transcribe(
         segments, info = await loop.run_in_executor(gpu_pool, transcribe_audio, audio, language, None)
         t_asr = round(time.perf_counter() - t0, 2)
 
+        mt_error = None
         if target_languages and segments:
             texts = [s["text"] for s in segments]
             langs_to_fetch = [l for l in target_languages if l != info.language]
             futures = {
-                l: asyncio.gather(*(loop.run_in_executor(mt_pool, translate_text, t, l) for t in texts))
+                l: asyncio.gather(*(loop.run_in_executor(mt_pool, translate_or_original, t, l) for t in texts))
                 for l in langs_to_fetch
             }
             results = dict(zip(futures.keys(), await asyncio.gather(*futures.values())))
             for i, seg in enumerate(segments):
                 seg["translations"] = {
-                    l: (seg["text"] if l == info.language else results[l][i])
+                    l: (seg["text"] if l == info.language else results[l][i][0])
                     for l in target_languages
                 }
+            mt_error = next((err for pairs in results.values() for _, err in pairs if err), None)
 
-        return {
+        resp = {
             "success": True,
             "detected_language": info.language,
             "language_probability": round(info.language_probability, 2),
@@ -322,6 +402,9 @@ async def transcribe(
             "processing_time": round(time.perf_counter() - t0, 2),
             "segments": segments,
         }
+        if mt_error:
+            resp["mt_error"] = mt_error  # el cliente muestra el original y avisa en su log
+        return resp
     except HTTPException:
         raise
     except Exception as e:
@@ -333,6 +416,7 @@ async def transcribe(
 #   cliente -> servidor  texto JSON  {"type":"config","target_lang":"es","language":null,"reset":false}
 #   cliente -> servidor  binario     un fragmento de audio completo (webm/opus) por mensaje
 #   servidor -> cliente  {"type":"ready"|"result"|"empty"|"dropped"|"error", "seq": n, ...}
+#   En "result", si la traducción falló, "translation" es el original y "mt_error" el motivo.
 class Session:
     def __init__(self):
         self.target_lang: str | None = "en"
@@ -396,11 +480,11 @@ async def process_loop(ws: WebSocket, s: Session, queue: asyncio.Queue):
                 continue
             s.prev_text = text[-MAX_PROMPT_CHARS:]
 
-            translation = text
+            translation, mt_error = text, None
             if s.target_lang and s.target_lang != info.language:
-                translation = await loop.run_in_executor(mt_pool, translate_text, text, s.target_lang)
-                if translation.startswith("[Error"):
-                    translation = text
+                translation, mt_error = await loop.run_in_executor(
+                    mt_pool, translate_or_original, text, s.target_lang
+                )
             if HALLUCINATIONS.match(translation):
                 await ws.send_json({"type": "empty", "seq": seq, "reason": "filtered"})
                 continue
@@ -411,6 +495,7 @@ async def process_loop(ws: WebSocket, s: Session, queue: asyncio.Queue):
                 "seq": seq,
                 "text": text,
                 "translation": translation,
+                **({"mt_error": mt_error} if mt_error else {}),
                 "language": info.language,
                 "language_probability": round(info.language_probability, 2),
                 "locked": s.language is not None,

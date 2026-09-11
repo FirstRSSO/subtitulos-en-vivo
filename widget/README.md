@@ -112,7 +112,9 @@ Si la GPU se atrasara, el backend tira los fragmentos viejos y el widget avisa
 ## Si algo falla: botón **log**
 
 Un texto grande que diga «Error 500» en los subtítulos **no es** un fallo HTTP:
-Whisper a veces inventa frases (o la traducción cuela un error). El registro
+Whisper a veces inventa frases. Si lo que falla es el traductor de Google, el
+subtítulo sale en el idioma original y el registro dice `Traducción falló; se
+usa el original` con el motivo (por ejemplo `gtx: HTTP 429`). El registro
 distingue las dos cosas.
 
 El botón **log** se pone rojo con errores nuevos. Cada línea lleva origen:

@@ -121,6 +121,10 @@ const BASURA_SUB = new RegExp(
   'i'
 );
 
+// Página de error de Google colada como traducción ("Error 500 (Server Error)!!1 …
+// That's all we know."). El backend actual ya la filtra; esto cubre notebooks viejos.
+const PAGINA_ERROR_GOOGLE = /error \d{3} \(server error\)|that['’]s all we know/i;
+
 function recortar(texto, n = 140) {
   const t = String(texto || '').replace(/\s+/g, ' ').trim();
   return t.length > n ? `${t.slice(0, n)}…` : t;
@@ -128,7 +132,7 @@ function recortar(texto, n = 140) {
 
 function pareceBasura(texto) {
   const t = String(texto || '').trim();
-  return !t || BASURA_SUB.test(t);
+  return !t || BASURA_SUB.test(t) || PAGINA_ERROR_GOOGLE.test(t);
 }
 
 function elegirSubtitulo(original, traduccion) {
@@ -612,6 +616,9 @@ function manejarMensajeWs(mensaje) {
       fallosSeguidos = 0;
       const original = (mensaje.text || '').trim();
       const traduccion = (mensaje.translation || '').trim();
+      if (mensaje.mt_error) {
+        registrar('warn', 'servidor', 'Traducción falló; se usa el original', recortar(mensaje.mt_error));
+      }
       const texto = elegirSubtitulo(original, traduccion);
       registrar(
         'info',
@@ -712,6 +719,9 @@ async function enviar(blob, seq) {
       .map((s) => s.translations?.[cfg.targetLang] ?? s.text)
       .join(' ')
       .trim();
+    if (datos.mt_error) {
+      registrar('warn', 'servidor', 'Traducción falló; se usa el original', recortar(datos.mt_error));
+    }
     registrar('info', 'servidor', `HTTP texto frag #${seq}`, `«${recortar(original)}» → «${recortar(traduccion)}»`);
     const texto = elegirSubtitulo(original, traduccion);
     if (!texto) {
