@@ -95,8 +95,8 @@ más limpio que con la mezcla completa del sistema.
 
 ## Backend
 
-El notebook es `backend/colab_whisper_ws.ipynb` (el `.py` tiene las mismas
-celdas). GPU recomendada: **T4 o mejor**. En Kaggle, la Tesla P100 funciona
+El notebook es `backend/colab_whisper_ws.ipynb` (el código está en
+`backend/whisper_ws/`). GPU recomendada: **T4 o mejor**. En Kaggle, la Tesla P100 funciona
 pero en `int8` (no admite `float16`).
 
 Al pulsar **Escuchar** el widget abre un WebSocket (`wss://…/ws`) y manda cada

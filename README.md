@@ -10,16 +10,36 @@ Subtítulos en vivo del audio que estás oyendo, traducidos. Un mismo backend
 
 ## Backend (obligatorio)
 
-Notebook: [`backend/colab_whisper_ws.ipynb`](backend/colab_whisper_ws.ipynb)
-(el `.py` tiene las mismas celdas).
+Notebook: [`backend/colab_whisper_ws.ipynb`](backend/colab_whisper_ws.ipynb).
+El código del servidor vive en el paquete [`backend/whisper_ws/`](backend/whisper_ws/);
+el notebook solo lo clona y lo llama.
 
 1. Ábrelo en **Google Colab** o **Kaggle**, con GPU.
-2. Ejecuta las celdas en orden (dependencias → modelo y servidor → túnel).
+2. Ejecuta las celdas en orden (código y dependencias → modelo y servidor → túnel).
 3. Copia la URL `https://….trycloudflare.com` que imprime el túnel.
 4. Pégala en la extensión o en el widget. Si no lleva `/transcribe`, se añade sola.
 
 GPU ideal: **T4 o mejor**. En Kaggle, la Tesla P100 vale, pero el modelo carga
 en `int8` porque esa GPU no hace `float16` eficiente.
+
+### Arranque rápido en Kaggle (opcional)
+
+Sin más, cada sesión descarga las dependencias y el modelo (~1,6 GB): unos
+3-6 minutos. Con una caché en un Kaggle Dataset se queda en menos de un minuto.
+Se genera una vez desde tu PC:
+
+```bash
+pip install huggingface_hub kaggle
+python backend/build_cache.py --kaggle-user TU_USUARIO   # ./whisper_ws_cache (~1,8 GB)
+kaggle datasets create -p whisper_ws_cache --dir-mode zip
+```
+
+(O súbela desde la web: Datasets → New Dataset.) En el notebook, *Add Input* →
+*Datasets* → `whisper-ws-cache`. La celda 1 la detecta sola en `/kaggle/input`.
+En Colab vale la misma carpeta en Drive (`MyDrive/whisper_ws_cache`), montando
+Drive antes; ahí conviene generarla con `--cuda-libs`, porque Colab suele traer
+un cuDNN que CTranslate2 no acepta. Si Kaggle cambia de versión de Python,
+regenera la caché con `--python X.Y`.
 
 El servidor ofrece `POST /transcribe` (HTTP, extensión y respaldo) y
 `GET /ws` (WebSocket, widget). `GET /health` confirma que el notebook sigue
