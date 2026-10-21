@@ -25,6 +25,7 @@ const DEFAULTS = {
   // Arranque automático del backend en Kaggle (ver README, "Arranque automático").
   gistUrl: '',               // https://gist.github.com/usuario/id — el notebook publica ahí su URL
   kaggleToken: '',           // KGAT_… de kaggle.com/settings/api
+  githubToken: '',           // fine-grained con permiso Gists: read and write (lo usa el notebook)
   kaggleUser: '',            // usuario de Kaggle (dueño del notebook y del dataset)
   kaggleKernel: 'whisper-ws-cache2', // slug del notebook (id de kernel-metadata.json)
   apagarAlCerrar: true       // POST /shutdown al cerrar el widget para no gastar GPU
@@ -341,6 +342,11 @@ ipcMain.on('ventana:cerrar', () => app.quit());
 
 /* ------------------------- arranque automático en Kaggle ------------------------- */
 
+function gistId(texto) {
+  const m = String(texto || '').trim().match(/([0-9a-f]{20,})\/?$/i);
+  return m ? m[1] : '';
+}
+
 function urlShutdown(apiUrl) {
   try {
     const url = new URL(apiUrl);
@@ -404,6 +410,19 @@ ipcMain.handle('kaggle:lanzar', async () => {
   for (const celda of nb.cells ?? []) {
     if (Array.isArray(celda.source)) celda.source = celda.source.join('');
     if (celda.cell_type === 'code') { celda.outputs = []; celda.execution_count = null; }
+  }
+  // Los Secrets de Kaggle no se adjuntan a las versiones lanzadas por API, así
+  // que el token del gist viaja como variables de entorno en una celda inicial.
+  // Solo va en la copia que se sube (el notebook es privado); el repo queda limpio.
+  const gist = gistId(config.gistUrl);
+  if (config.githubToken && gist) {
+    nb.cells.unshift({
+      cell_type: 'code',
+      metadata: {},
+      outputs: [],
+      execution_count: null,
+      source: `import os\nos.environ["GITHUB_TOKEN"] = ${JSON.stringify(config.githubToken)}\nos.environ["GIST_ID"] = ${JSON.stringify(gist)}\n`
+    });
   }
   const slug = `${config.kaggleUser}/${config.kaggleKernel}`;
   const datasets = (meta.dataset_sources ?? []).map((d) => d.replace(/^[^/]+\//, `${config.kaggleUser}/`));

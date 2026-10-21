@@ -126,24 +126,26 @@ Se configura una vez, en **⚙ Ajustes → Arranque automático del backend**:
 2. **Token de GitHub** para que el notebook pueda escribir en ese gist:
    GitHub → *Settings → Developer settings → Personal access tokens →
    Fine-grained tokens → Generate*. Permiso *Account permissions → Gists:
-   Read and write*, nada más. Guárdalo: lo necesitas en el paso 5.
+   Read and write*, nada más. Pégalo en *Token de GitHub*.
 3. **Dataset de caché** en Kaggle (opcional pero recomendado, ver el README
    principal): sin él cada arranque tarda 5-6 min en vez de 1-2.
 4. **Token de Kaggle:** [kaggle.com/settings/api](https://www.kaggle.com/settings/api)
    → *Generate New Token*. Pégalo en *Token de Kaggle* y escribe tu usuario
-   en *Usuario de Kaggle*. El nombre del notebook es `whisper-ws-cache2` salvo que
-   cambies `backend/kernel-metadata.json`.
-5. **Primer lanzamiento y Secrets.** Pulsa **Escuchar**: el widget crea el
-   notebook `whisper-ws` en tu cuenta y lo ejecuta. Ese primer arranque
-   *no* publicará la URL, porque el notebook aún no tiene los secretos. Ábrelo
-   en kaggle.com → *Add-ons → Secrets* y añade `GITHUB_TOKEN` (paso 2) y
-   `GIST_ID` (la parte final de la URL del gist), ambos adjuntos al notebook.
-   Desde el siguiente lanzamiento ya va solo. Mientras tanto puedes copiar la
-   URL del log del notebook y pegarla a mano, como siempre.
+   en *Usuario de Kaggle*. *Nombre del notebook* es el slug del notebook de
+   Kaggle que se lanzará (se crea si no existe); por defecto el de
+   `backend/kernel-metadata.json`.
+5. Pulsa **Escuchar**. El widget sube el notebook del repo a Kaggle con una
+   celda inicial que lleva el token de GitHub y el id del gist como variables
+   de entorno (los *Secrets* de Kaggle no se adjuntan a las versiones lanzadas
+   por API), lo ejecuta y espera a que publique su URL.
 
-Los tokens se guardan en `config.json` de tu usuario de Windows, no salen del
-PC salvo hacia Kaggle y GitHub. Si uno se filtra, revócalo en la misma página
-donde lo creaste.
+Si ejecutas el notebook a mano en Kaggle, en vez de esa celda puedes usar
+*Add-ons → Secrets* con `GITHUB_TOKEN` y `GIST_ID`; el código acepta ambas vías.
+
+Los tokens se guardan en `config.json` de tu usuario de Windows y, el de
+GitHub, también dentro de las versiones del notebook en Kaggle (que es
+privado). Si uno se filtra, revócalo en la misma página donde lo creaste; el de
+GitHub solo puede tocar gists.
 
 El mismo lanzamiento se puede hacer desde la terminal, con el CLI oficial:
 

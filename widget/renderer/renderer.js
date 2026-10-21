@@ -15,7 +15,7 @@ const ui = {
   inpFuente: $('inpFuente'), inpOpacidad: $('inpOpacidad'),
   inpMin: $('inpMin'), inpMax: $('inpMax'), inpUmbral: $('inpUmbral'),
   chkMonitor: $('chkMonitor'),
-  inpGist: $('inpGist'), inpKaggleUser: $('inpKaggleUser'), inpKaggleToken: $('inpKaggleToken'),
+  inpGist: $('inpGist'), inpGithubToken: $('inpGithubToken'), inpKaggleUser: $('inpKaggleUser'), inpKaggleToken: $('inpKaggleToken'),
   inpKaggleKernel: $('inpKaggleKernel'), chkApagar: $('chkApagar'),
   valFuente: $('valFuente'), valOpacidad: $('valOpacidad'),
   valMin: $('valMin'), valMax: $('valMax'), valUmbral: $('valUmbral'),
@@ -1039,7 +1039,7 @@ ui.selIdioma.addEventListener('change', () => {
 ui.chkMonitor.addEventListener('change', () => guardar({ monitorizar: ui.chkMonitor.checked }));
 
 const camposKaggle = [
-  [ui.inpGist, 'gistUrl'], [ui.inpKaggleUser, 'kaggleUser'],
+  [ui.inpGist, 'gistUrl'], [ui.inpGithubToken, 'githubToken'], [ui.inpKaggleUser, 'kaggleUser'],
   [ui.inpKaggleToken, 'kaggleToken'], [ui.inpKaggleKernel, 'kaggleKernel']
 ];
 for (const [input, clave] of camposKaggle) {
@@ -1047,7 +1047,7 @@ for (const [input, clave] of camposKaggle) {
     const valor = input.value.trim();
     guardar({ [clave]: clave === 'kaggleKernel' && !valor ? 'whisper-ws-cache2' : valor });
     if (clave === 'kaggleKernel') input.value = cfg.kaggleKernel;
-    registrar('info', 'widget', `Ajuste ${clave} guardado`, clave === 'kaggleToken' ? '(oculto)' : cfg[clave]);
+    registrar('info', 'widget', `Ajuste ${clave} guardado`, clave.endsWith('Token') ? '(oculto)' : cfg[clave]);
   });
 }
 ui.chkApagar.addEventListener('change', () => guardar({ apagarAlCerrar: ui.chkApagar.checked }));
@@ -1088,6 +1088,7 @@ window.widget.onAtajo((nombre) => {
   ui.chkMonitor.checked = cfg.monitorizar;
   ui.selDispositivo.hidden = cfg.fuente !== 'device';
   ui.inpGist.value = cfg.gistUrl;
+  ui.inpGithubToken.value = cfg.githubToken;
   ui.inpKaggleUser.value = cfg.kaggleUser;
   ui.inpKaggleToken.value = cfg.kaggleToken;
   ui.inpKaggleKernel.value = cfg.kaggleKernel;
