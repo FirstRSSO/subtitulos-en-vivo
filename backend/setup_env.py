@@ -22,7 +22,7 @@ if BACKEND_DIR not in sys.path:
 
 from whisper_ws.cache import find_cache  # noqa: E402  (solo stdlib)
 
-PACKAGES = ["faster-whisper", "fastapi", "uvicorn[standard]", "python-multipart", "requests"]
+PACKAGES = ["faster-whisper", "av<19", "fastapi", "uvicorn[standard]", "python-multipart", "requests"]
 # CTranslate2 necesita cuDNN 9 + cuBLAS 12. Colab a veces trae otra versión y el
 # kernel muere sin traceback en la primera inferencia. Kaggle suele traer la buena.
 CUDA_PACKAGES = ["nvidia-cudnn-cu12>=9", "nvidia-cublas-cu12"]

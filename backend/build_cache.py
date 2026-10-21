@@ -39,7 +39,7 @@ MODELS = {
     "distil-large-v3": "Systran/faster-distil-whisper-large-v3",
 }
 MODEL_FILES = ["config.json", "preprocessor_config.json", "model.bin", "tokenizer.json", "vocabulary.*"]
-PACKAGES = ["faster-whisper", "fastapi", "uvicorn[standard]", "python-multipart", "requests"]
+PACKAGES = ["faster-whisper", "av<19", "fastapi", "uvicorn[standard]", "python-multipart", "requests"]
 CUDA_PACKAGES = ["nvidia-cudnn-cu12>=9", "nvidia-cublas-cu12"]
 PLATFORMS = [
     "manylinux2014_x86_64", "manylinux_2_17_x86_64", "manylinux_2_24_x86_64",

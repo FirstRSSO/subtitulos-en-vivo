@@ -31,6 +31,19 @@ cuda_libs.preload()  # antes de importar torch/ctranslate2
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 import uvicorn  # noqa: E402
+import av  # noqa: E402
+
+# Compatibilidad con PyAV >= 19 (eliminó el argumento metadata_errors que usa faster-whisper)
+_orig_av_open = av.open
+
+
+def _patched_av_open(*args, **kwargs):
+    kwargs.pop("metadata_errors", None)
+    return _orig_av_open(*args, **kwargs)
+
+
+av.open = _patched_av_open
+
 from fastapi import (  # noqa: E402
     FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect,
 )
@@ -148,7 +161,8 @@ def decode_chunk(data: bytes) -> np.ndarray | None:
     """webm/opus (u otro contenedor) -> float32 mono 16 kHz, en memoria."""
     try:
         audio = decode_audio(io.BytesIO(data), sampling_rate=SAMPLE_RATE)
-    except Exception:
+    except Exception as e:
+        print(f"[audio] Error decodificando audio: {type(e).__name__} - {e}")
         return None
     if audio is None or len(audio) < MIN_AUDIO_S * SAMPLE_RATE:
         return None
