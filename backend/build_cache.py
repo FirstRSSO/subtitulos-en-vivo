@@ -1,8 +1,8 @@
 """Genera la caché de arranque rápido para subirla como Kaggle Dataset.
 
-    python build_cache.py                       # ./whisper_ws_cache, modelo turbo, Python 3.11
+    python build_cache.py                       # ./whisper_ws_cache, modelo turbo, Python 3.13
     python build_cache.py --cuda-libs           # añade cuDNN/cuBLAS (~1 GB) para Colab
-    python build_cache.py --python 3.12         # si Kaggle cambia de versión (ver !python -V)
+    python build_cache.py --python 3.12         # si Kaggle cambia de versión (ver !python -V; hoy 3.13)
     python build_cache.py --kaggle-user USUARIO # rellena dataset-metadata.json
 
 Requiere: pip y el paquete huggingface_hub (pip install huggingface_hub).
@@ -99,7 +99,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", default="whisper_ws_cache")
     ap.add_argument("--model", default="turbo")
-    ap.add_argument("--python", default="3.11", help="versión de Python del notebook (Kaggle: !python -V)")
+    ap.add_argument("--python", default="3.13", help="versión de Python del notebook (Kaggle: !python -V)")
     ap.add_argument("--cuda-libs", action="store_true", help="incluir cuDNN/cuBLAS (~1 GB, hace falta en Colab)")
     ap.add_argument("--kaggle-user", default=None)
     ap.add_argument("--skip-model", action="store_true")
