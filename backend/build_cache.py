@@ -24,6 +24,7 @@ Después, en el notebook: Add Input → Datasets → whisper-ws-cache.
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import urllib.request
@@ -60,6 +61,8 @@ def download_model(name: str, out: str):
     dest = os.path.join(out, "model", name)
     print(f"Modelo {name} ({repo}) -> {dest}")
     snapshot_download(repo, local_dir=dest, allow_patterns=MODEL_FILES)
+    # huggingface_hub deja una carpeta .cache con locks y metadatos; no hace falta subirla.
+    shutil.rmtree(os.path.join(dest, ".cache"), ignore_errors=True)
 
 
 def download_wheels(python: str, cuda_libs: bool, out: str):
