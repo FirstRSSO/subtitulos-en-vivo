@@ -109,6 +109,55 @@ El estado enseña el transporte y la latencia: `Escuchando (ws · 800 ms)` o
 Si la GPU se atrasara, el backend tira los fragmentos viejos y el widget avisa
 `Backend saturado`, para que el subtítulo siga en vivo y no acumule retraso.
 
+## Arranque automático (sin abrir Kaggle)
+
+Configurado esto, al pulsar **Escuchar** el widget comprueba si el backend
+responde; si no, lanza el notebook en Kaggle por API, espera a que publique su
+URL en un gist y conecta solo. Tarda 1-3 min la primera vez de cada sesión.
+Al cerrar el widget manda `POST /shutdown` y el notebook termina; si se queda
+sin clientes 10 minutos, se apaga él solo. Todo gratis: Kaggle (30 h de GPU a
+la semana) y GitHub (un gist y un token).
+
+Se configura una vez, en **⚙ Ajustes → Arranque automático del backend**:
+
+1. **Gist.** En [gist.github.com](https://gist.github.com) crea un gist
+   *secreto* con un archivo `whisper_ws.json` y contenido `{}`. Copia su URL
+   (`https://gist.github.com/usuario/1234abcd…`) en el campo *Gist*.
+2. **Token de GitHub** para que el notebook pueda escribir en ese gist:
+   GitHub → *Settings → Developer settings → Personal access tokens →
+   Fine-grained tokens → Generate*. Permiso *Account permissions → Gists:
+   Read and write*, nada más. Guárdalo: lo necesitas en el paso 5.
+3. **Dataset de caché** en Kaggle (opcional pero recomendado, ver el README
+   principal): sin él cada arranque tarda 5-6 min en vez de 1-2.
+4. **Token de Kaggle:** [kaggle.com/settings/api](https://www.kaggle.com/settings/api)
+   → *Generate New Token*. Pégalo en *Token de Kaggle* y escribe tu usuario
+   en *Usuario de Kaggle*. El nombre del notebook es `whisper-ws` salvo que
+   cambies `backend/kernel-metadata.json`.
+5. **Primer lanzamiento y Secrets.** Pulsa **Escuchar**: el widget crea el
+   notebook `whisper-ws` en tu cuenta y lo ejecuta. Ese primer arranque
+   *no* publicará la URL, porque el notebook aún no tiene los secretos. Ábrelo
+   en kaggle.com → *Add-ons → Secrets* y añade `GITHUB_TOKEN` (paso 2) y
+   `GIST_ID` (la parte final de la URL del gist), ambos adjuntos al notebook.
+   Desde el siguiente lanzamiento ya va solo. Mientras tanto puedes copiar la
+   URL del log del notebook y pegarla a mano, como siempre.
+
+Los tokens se guardan en `config.json` de tu usuario de Windows, no salen del
+PC salvo hacia Kaggle y GitHub. Si uno se filtra, revócalo en la misma página
+donde lo creaste.
+
+El mismo lanzamiento se puede hacer desde la terminal, con el CLI oficial:
+
+```bash
+kaggle kernels push -p backend          # lanza; la URL aparece en el gist
+kaggle kernels status usuario/whisper-ws
+```
+
+Si el arranque falla, el botón **log** dice en qué paso: `Fallo al lanzar el
+notebook` (token o usuario mal, o el dataset no existe en tu cuenta), `No se
+pudo leer el gist` (URL del gist mal) o `Tiempo de arranque agotado` (abre el
+notebook en kaggle.com y mira su log; suele ser cuota de GPU agotada o Secrets
+sin adjuntar).
+
 ## Si algo falla: botón **log**
 
 Un texto grande que diga «Error 500» en los subtítulos **no es** un fallo HTTP:
@@ -135,10 +184,10 @@ la misma carpeta que `config.json`.
 ## Archivos
 
 ```
-main.js              ventana, loopback, atajos, config, redimensionado
+main.js              ventana, loopback, atajos, config, redimensionado, API de Kaggle
 preload.js           puente entre la interfaz y el proceso principal
 iniciar.bat          arranque en Windows
 renderer/index.html  interfaz
 renderer/styles.css  estilos
-renderer/renderer.js captura, envío al backend, subtítulos, registro
+renderer/renderer.js captura, envío al backend, arranque automático, subtítulos, registro
 ```

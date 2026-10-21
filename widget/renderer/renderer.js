@@ -15,6 +15,8 @@ const ui = {
   inpFuente: $('inpFuente'), inpOpacidad: $('inpOpacidad'),
   inpMin: $('inpMin'), inpMax: $('inpMax'), inpUmbral: $('inpUmbral'),
   chkMonitor: $('chkMonitor'),
+  inpGist: $('inpGist'), inpKaggleUser: $('inpKaggleUser'), inpKaggleToken: $('inpKaggleToken'),
+  inpKaggleKernel: $('inpKaggleKernel'), chkApagar: $('chkApagar'),
   valFuente: $('valFuente'), valOpacidad: $('valOpacidad'),
   valMin: $('valMin'), valMax: $('valMax'), valUmbral: $('valUmbral'),
   logs: $('logs'), logLista: $('logLista'), btnLogs: $('btnLogs'),
@@ -37,6 +39,9 @@ const captura = {
   ocultarTimer: null
 };
 
+// Arranque automático del backend: se cancela si el usuario pulsa Detener.
+const arranque = { enCurso: false, cancelado: false };
+
 let cola = Promise.resolve();
 let fallosSeguidos = 0;
 let seqLocal = 0;
@@ -55,9 +60,9 @@ function setEstado(texto, tipo = '') {
 }
 
 function pintarCaptura() {
-  const activo = captura.activa;
+  const activo = captura.activa || arranque.enCurso;
   ui.btnEscuchar.classList.toggle('activo', activo);
-  ui.txtEscuchar.textContent = activo ? 'Detener' : 'Escuchar';
+  ui.txtEscuchar.textContent = arranque.enCurso ? 'Cancelar' : activo ? 'Detener' : 'Escuchar';
   ui.btnEscuchar.querySelector('.icono').innerHTML = activo ? '&#9632;' : '&#9654;';
   ui.btnCintaEscuchar.classList.toggle('activo', activo);
   ui.btnCintaEscuchar.querySelector('.icono').innerHTML = activo ? '&#9632;' : '&#9654;';
@@ -377,6 +382,7 @@ async function iniciar() {
     setEstado('Conectando...');
     seqLocal = 0;
     registrar('info', 'widget', 'Iniciando captura', `fuente=${cfg.fuente} lang=${cfg.targetLang}`);
+    if (!(await asegurarBackend())) { pintarCaptura(); return; }
     captura.stream = await obtenerStream();
 
     captura.audioCtx = new AudioContext();
@@ -471,6 +477,7 @@ function grabarFragmento() {
 async function detener() {
   const estabaActiva = captura.activa;
   captura.activa = false;
+  if (arranque.enCurso) arranque.cancelado = true;
   cerrarWs();
 
   clearInterval(captura.vigilante);
@@ -494,6 +501,136 @@ async function detener() {
   ui.medidor.style.width = '0%';
   setEstado('Listo');
   if (estabaActiva) registrar('info', 'widget', 'Captura detenida');
+}
+
+/* ------------------------- arranque automático (Kaggle + gist) ------------------------- */
+
+// El notebook escribe {"url", "status", "updated"} en un gist (whisper_ws.json).
+// Se lee por la API de GitHub (sin token: 60 peticiones/hora por IP, de sobra
+// para un arranque) y, si falla, por la URL "raw" con un parámetro anticaché.
+function gistId(texto) {
+  const m = String(texto || '').trim().match(/([0-9a-f]{20,})\/?$/i);
+  return m ? m[1] : '';
+}
+
+async function leerGist() {
+  const id = gistId(cfg.gistUrl);
+  if (!id) return null;
+  const intentos = [
+    async () => {
+      const r = await fetch(`https://api.github.com/gists/${id}`, {
+        headers: { Accept: 'application/vnd.github+json' },
+        signal: AbortSignal.timeout(8000)
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      const f = j.files?.['whisper_ws.json'];
+      if (!f) throw new Error('el gist no tiene whisper_ws.json');
+      return JSON.parse(f.content);
+    },
+    async () => {
+      const base = cfg.gistUrl.replace('gist.github.com', 'gist.githubusercontent.com').replace(/\/+$/, '');
+      const r = await fetch(`${base}/raw/whisper_ws.json?t=${Date.now()}`, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return await r.json();
+    }
+  ];
+  let ultimo = null;
+  for (const intento of intentos) {
+    try { return await intento(); } catch (e) { ultimo = e; }
+  }
+  registrar('error', 'red', 'No se pudo leer el gist', ultimo?.message || '');
+  return null;
+}
+
+async function backendResponde(apiUrl, timeoutMs = 6000) {
+  const url = urlHealth(apiUrl);
+  if (!url) return false;
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Si el gist tiene una URL distinta de la guardada, se adopta sin preguntar.
+async function adoptarUrlDelGist(minUpdated = 0) {
+  const g = await leerGist();
+  if (!g || g.status !== 'up' || !g.url || (g.updated ?? 0) < minUpdated) return false;
+  const nueva = normalizarUrl(g.url);
+  if (nueva !== cfg.apiUrl) {
+    ui.inpApi.value = nueva;
+    guardar({ apiUrl: nueva });
+    registrar('info', 'widget', 'URL del backend tomada del gist', nueva);
+  }
+  return true;
+}
+
+const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Devuelve true si hay backend. Si no lo hay y Kaggle está configurado, lanza
+// el notebook y espera a que publique su URL y responda a /health.
+async function asegurarBackend() {
+  const conGist = Boolean(gistId(cfg.gistUrl));
+  const conKaggle = Boolean(cfg.kaggleToken && cfg.kaggleUser);
+  if (!conGist && !conKaggle) return true;   // modo manual de siempre
+
+  if (conGist) await adoptarUrlDelGist();
+  if (await backendResponde(cfg.apiUrl)) return true;
+  if (!conKaggle) {
+    setEstado('El backend no responde y no hay token de Kaggle para arrancarlo', 'error');
+    registrar('error', 'red', 'Backend caído y sin arranque automático', cfg.apiUrl);
+    return false;
+  }
+
+  arranque.enCurso = true;
+  arranque.cancelado = false;
+  pintarCaptura();
+  const t0 = Date.now();
+  const desde = Math.floor(t0 / 1000) - 60;   // publicaciones anteriores al lanzamiento no valen
+  try {
+    let estado = null;
+    try {
+      ({ estado } = await window.widget.kaggleEstado());
+    } catch (e) {
+      registrar('error', 'red', 'No se pudo consultar Kaggle', e.message);
+    }
+    if (estado === 'RUNNING' || estado === 'QUEUED') {
+      registrar('info', 'widget', `El notebook ya está ${estado === 'RUNNING' ? 'en marcha' : 'en cola'}; esperando su URL`);
+    } else {
+      setEstado('Lanzando el backend en Kaggle...');
+      const r = await window.widget.kaggleLanzar();
+      registrar('info', 'widget', 'Notebook lanzado en Kaggle', r.url);
+    }
+
+    const LIMITE_MS = 8 * 60 * 1000;
+    while (Date.now() - t0 < LIMITE_MS) {
+      if (arranque.cancelado) {
+        registrar('info', 'widget', 'Arranque cancelado por el usuario (el notebook seguirá hasta apagarse solo)');
+        return false;
+      }
+      const seg = Math.round((Date.now() - t0) / 1000);
+      setEstado(`Arrancando backend en Kaggle (${seg} s, suele tardar 1-3 min)...`);
+      if (conGist ? await adoptarUrlDelGist(desde) : true) {
+        if (await backendResponde(cfg.apiUrl, 4000)) {
+          registrar('info', 'servidor', `Backend listo en ${seg} s`, cfg.apiUrl);
+          return true;
+        }
+      }
+      await dormir(10000);
+    }
+    setEstado('El backend no arrancó en 8 min; revisa el notebook en Kaggle', 'error');
+    registrar('error', 'servidor', 'Tiempo de arranque agotado', 'mira el log del notebook en kaggle.com');
+    return false;
+  } catch (e) {
+    setEstado(`No se pudo arrancar el backend: ${e.message.slice(0, 80)}`, 'error');
+    registrar('error', 'widget', 'Fallo al lanzar el notebook', e.message);
+    return false;
+  } finally {
+    arranque.enCurso = false;
+    pintarCaptura();
+  }
 }
 
 /* ------------------------- backend ------------------------- */
@@ -747,7 +884,7 @@ function guardar(parcial) {
   return window.widget.guardarConfig(parcial);
 }
 
-ui.btnEscuchar.addEventListener('click', () => (captura.activa ? detener() : iniciar()));
+ui.btnEscuchar.addEventListener('click', () => (captura.activa || arranque.enCurso ? detener() : iniciar()));
 
 ui.selFuente.addEventListener('change', async () => {
   guardar({ fuente: ui.selFuente.value });
@@ -805,7 +942,7 @@ ui.btnFantasma.addEventListener('click', () => {
 
 ui.btnCompacto.addEventListener('click', () => setCompacto(!cfg.compacto));
 ui.btnCintaOpciones.addEventListener('click', () => setCompacto(false));
-ui.btnCintaEscuchar.addEventListener('click', () => (captura.activa ? detener() : iniciar()));
+ui.btnCintaEscuchar.addEventListener('click', () => (captura.activa || arranque.enCurso ? detener() : iniciar()));
 ui.btnCintaCerrar.addEventListener('click', () => window.widget.cerrar());
 ui.subtitulo.addEventListener('dblclick', () => setCompacto(!cfg.compacto));
 
@@ -901,6 +1038,20 @@ ui.selIdioma.addEventListener('change', () => {
 });
 ui.chkMonitor.addEventListener('change', () => guardar({ monitorizar: ui.chkMonitor.checked }));
 
+const camposKaggle = [
+  [ui.inpGist, 'gistUrl'], [ui.inpKaggleUser, 'kaggleUser'],
+  [ui.inpKaggleToken, 'kaggleToken'], [ui.inpKaggleKernel, 'kaggleKernel']
+];
+for (const [input, clave] of camposKaggle) {
+  input.addEventListener('change', () => {
+    const valor = input.value.trim();
+    guardar({ [clave]: clave === 'kaggleKernel' && !valor ? 'whisper-ws' : valor });
+    if (clave === 'kaggleKernel') input.value = cfg.kaggleKernel;
+    registrar('info', 'widget', `Ajuste ${clave} guardado`, clave === 'kaggleToken' ? '(oculto)' : cfg[clave]);
+  });
+}
+ui.chkApagar.addEventListener('change', () => guardar({ apagarAlCerrar: ui.chkApagar.checked }));
+
 const deslizadores = [
   [ui.inpFuente, 'fontSize', ui.valFuente, (v) => `${v} px`],
   [ui.inpOpacidad, 'opacidad', ui.valOpacidad, (v) => `${Math.round(v * 100)} %`],
@@ -922,7 +1073,7 @@ for (const [input, clave, salida, formato] of deslizadores) {
 }
 
 window.widget.onAtajo((nombre) => {
-  if (nombre === 'toggle') captura.activa ? detener() : iniciar();
+  if (nombre === 'toggle') captura.activa || arranque.enCurso ? detener() : iniciar();
   if (nombre === 'compacto') setCompacto(!cfg.compacto);
 });
 
@@ -936,6 +1087,11 @@ window.widget.onAtajo((nombre) => {
   ui.selFuente.value = cfg.fuente;
   ui.chkMonitor.checked = cfg.monitorizar;
   ui.selDispositivo.hidden = cfg.fuente !== 'device';
+  ui.inpGist.value = cfg.gistUrl;
+  ui.inpKaggleUser.value = cfg.kaggleUser;
+  ui.inpKaggleToken.value = cfg.kaggleToken;
+  ui.inpKaggleKernel.value = cfg.kaggleKernel;
+  ui.chkApagar.checked = cfg.apagarAlCerrar;
 
   ui.inpFuente.value = cfg.fontSize;
   ui.inpOpacidad.value = Math.round(cfg.opacidad * 100);
@@ -960,6 +1116,7 @@ window.widget.onAtajo((nombre) => {
   } catch { /* el archivo se crea al primer evento */ }
 
   registrar('info', 'widget', 'Widget iniciado', `backend=${cfg.apiUrl}`);
+  if (gistId(cfg.gistUrl)) await adoptarUrlDelGist();
   comprobarSalud();
 
   if (cfg.fuente === 'device') await enumerarDispositivos();

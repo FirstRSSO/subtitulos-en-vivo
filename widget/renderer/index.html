@@ -88,6 +88,34 @@
         <label><input id="chkMonitor" type="checkbox"> Oír el audio por los altavoces (solo modo dispositivo)</label>
       </div>
 
+      <details id="kaggle" class="campo ancho">
+        <summary>Arranque automático del backend (Kaggle)</summary>
+        <p class="ayuda">
+          Con esto el widget enciende el notebook él solo al pulsar <strong>Escuchar</strong> y
+          lee la URL del túnel de un gist, sin abrir Kaggle. Guía: <em>widget/README.md</em>,
+          sección «Arranque automático».
+        </p>
+        <div class="campo">
+          <label for="inpGist">Gist donde el notebook publica la URL</label>
+          <input id="inpGist" type="text" spellcheck="false" placeholder="https://gist.github.com/usuario/1234abcd…">
+        </div>
+        <div class="campo">
+          <label for="inpKaggleUser">Usuario de Kaggle</label>
+          <input id="inpKaggleUser" type="text" spellcheck="false" placeholder="usuario">
+        </div>
+        <div class="campo">
+          <label for="inpKaggleToken">Token de Kaggle (kaggle.com/settings/api)</label>
+          <input id="inpKaggleToken" type="password" spellcheck="false" placeholder="KGAT_…">
+        </div>
+        <div class="campo">
+          <label for="inpKaggleKernel">Nombre del notebook</label>
+          <input id="inpKaggleKernel" type="text" spellcheck="false" placeholder="whisper-ws">
+        </div>
+        <div class="campo casilla">
+          <label><input id="chkApagar" type="checkbox"> Apagar el backend al cerrar el widget</label>
+        </div>
+      </details>
+
       <p class="ayuda">
         Para traducir <strong>un solo programa</strong>: instala VB-CABLE, envía esa aplicación
         al cable desde <em>Configuración &rsaquo; Sistema &rsaquo; Sonido &rsaquo; Preferencias de volumen

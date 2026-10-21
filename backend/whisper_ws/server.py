@@ -33,16 +33,17 @@ import torch  # noqa: E402
 import uvicorn  # noqa: E402
 import av  # noqa: E402
 
-# Compatibilidad con PyAV >= 19 (eliminó el argumento metadata_errors que usa faster-whisper)
-_orig_av_open = av.open
+# PyAV 19 eliminó metadata_errors, que faster-whisper sigue pasando a av.open.
+# Solo se parchea ahí: en av < 19 quitarlo cambiaría "ignore" por "strict" y los
+# metadatos que no son UTF-8 harían perder el fragmento.
+if int(av.__version__.split(".")[0]) >= 19:
+    _orig_av_open = av.open
 
+    def _patched_av_open(*args, **kwargs):
+        kwargs.pop("metadata_errors", None)
+        return _orig_av_open(*args, **kwargs)
 
-def _patched_av_open(*args, **kwargs):
-    kwargs.pop("metadata_errors", None)
-    return _orig_av_open(*args, **kwargs)
-
-
-av.open = _patched_av_open
+    av.open = _patched_av_open
 
 from fastapi import (  # noqa: E402
     FastAPI, File, Form, HTTPException, UploadFile, WebSocket, WebSocketDisconnect,
@@ -88,6 +89,20 @@ model: WhisperModel | None = None
 model_size = "turbo"
 device = "cpu"
 compute_type = "int8"
+
+# ---------- Actividad / apagado ----------
+# El notebook se apaga solo si nadie lo usa (ver wait_until_idle) o si un
+# cliente llama a POST /shutdown. Así no se gasta cuota de GPU con el widget cerrado.
+_started = time.monotonic()
+_last_activity = time.monotonic()
+_ws_open = 0
+_stop = threading.Event()
+
+
+def _touch():
+    global _last_activity
+    _last_activity = time.monotonic()
+
 
 # ---------- Concurrencia ----------
 # Un solo hilo para la GPU: dos transcripciones a la vez se pelean por la VRAM
@@ -218,7 +233,16 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    return {"ok": True, "device": device, "model": model_size, "ws": "/ws"}
+    return {"ok": True, "device": device, "model": model_size, "ws": "/ws",
+            "uptime_s": int(time.monotonic() - _started),
+            "idle_s": 0 if _ws_open else int(time.monotonic() - _last_activity)}
+
+
+@app.post("/shutdown")
+def shutdown():
+    """Lo llama el widget al cerrarse: termina wait_until_idle() y con él el notebook."""
+    _stop.set()
+    return {"ok": True}
 
 
 # ----- HTTP (respaldo y compatibilidad con la extensión) -----
@@ -229,6 +253,7 @@ async def transcribe(
     language: str | None = Form(None, description="Idioma del audio si se conoce (ej: 'en')"),
 ):
     t0 = time.perf_counter()
+    _touch()
     target_languages = parse_langs(target_lang)
     data = await file.read()
     loop = asyncio.get_running_loop()
@@ -382,7 +407,10 @@ async def process_loop(ws: WebSocket, s: Session, queue: asyncio.Queue):
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket):
+    global _ws_open
     await ws.accept()
+    _ws_open += 1
+    _touch()
     s = Session()
     queue: asyncio.Queue = asyncio.Queue()
     worker = asyncio.create_task(process_loop(ws, s, queue))
@@ -417,6 +445,8 @@ async def ws_endpoint(ws: WebSocket):
     except WebSocketDisconnect:
         pass
     finally:
+        _ws_open -= 1
+        _touch()
         worker.cancel()
 
 
@@ -437,3 +467,31 @@ def start(size: str = "turbo", warmup: bool = True, port: int = 8000):
     """Todo en uno para el notebook: modelo + warm-up + servidor."""
     load_model(size, warmup=warmup)
     serve(port)
+
+
+def wait_until_idle(idle_min: float = 10, max_hours: float = 11.5, on_exit=None):
+    """Bloquea la celda hasta que no haya clientes durante idle_min minutos,
+    alguien llame a POST /shutdown, o pasen max_hours (Kaggle corta a las 12 h).
+
+    En modo interactivo basta con interrumpir la celda. En modo batch (lanzado
+    por API o "Save & Run All") esta espera es lo que mantiene el servidor vivo.
+    """
+    print(f"Servidor en marcha. Se apagará tras {idle_min:g} min sin clientes, "
+          f"con POST /shutdown, o a las {max_hours:g} h.")
+    motivo = None
+    try:
+        while not _stop.wait(15):
+            idle = 0 if _ws_open else time.monotonic() - _last_activity
+            if idle > idle_min * 60:
+                motivo = f"{idle_min:g} min sin clientes"
+                break
+            if time.monotonic() - _started > max_hours * 3600:
+                motivo = f"límite de {max_hours:g} h"
+                break
+        else:
+            motivo = "POST /shutdown"
+    except KeyboardInterrupt:
+        motivo = "interrumpido"
+    print(f"Apagando: {motivo}.")
+    if on_exit:
+        on_exit()

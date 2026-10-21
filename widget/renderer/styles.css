@@ -55,7 +55,7 @@ html, body {
 #barra select,
 #cinta button { -webkit-app-region: no-drag; }
 
-button, select, input[type="text"] {
+button, select, input[type="text"], input[type="password"] {
   font: inherit;
   color: var(--texto);
   background: rgba(255, 255, 255, 0.07);
@@ -138,6 +138,12 @@ select option { background: #14171f; }
 
 /* ---------- panel de ajustes ---------- */
 
+#kaggle summary { color: var(--tenue); cursor: pointer; margin-bottom: 6px; }
+#kaggle[open] { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+#kaggle[open] > summary, #kaggle[open] > .ayuda, #kaggle[open] > .casilla { grid-column: 1 / -1; }
+#kaggle input[type="text"], #kaggle input[type="password"] { width: 100%; }
+
+
 #ajustes {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -162,7 +168,7 @@ select option { background: #14171f; }
 .fila { display: flex; gap: 6px; }
 .fila input { flex: 1; min-width: 0; }
 
-input[type="text"] {
+input[type="text"], input[type="password"] {
   width: 100%;
   cursor: text;
   user-select: text;

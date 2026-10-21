@@ -43,7 +43,16 @@ regenera la caché con `--python X.Y`.
 
 El servidor ofrece `POST /transcribe` (HTTP, extensión y respaldo) y
 `GET /ws` (WebSocket, widget). `GET /health` confirma que el notebook sigue
-vivo.
+vivo y `POST /shutdown` lo apaga. El notebook termina solo tras 10 minutos sin
+clientes, para no gastar cuota de GPU.
+
+### Arranque automático desde el widget
+
+El widget puede lanzar el notebook en Kaggle por API y leer la URL del túnel de
+un gist, sin abrir el navegador. La guía está en
+[widget/README.md](widget/README.md#arranque-automático-sin-abrir-kaggle).
+`backend/kernel-metadata.json` describe ese notebook (GPU, internet, dataset
+de caché) y sirve también para `kaggle kernels push -p backend`.
 
 ## Extensión de Chrome
 

@@ -21,8 +21,19 @@ const DEFAULTS = {
   compacto: false,           // solo la barra de subtítulos
   altoOpciones: 210,         // altura al volver a mostrar controles
   altoCompacto: 0,           // altura de la barra de letras si el usuario la estiró
-  bounds: null
+  bounds: null,
+  // Arranque automático del backend en Kaggle (ver README, "Arranque automático").
+  gistUrl: '',               // https://gist.github.com/usuario/id — el notebook publica ahí su URL
+  kaggleToken: '',           // KGAT_… de kaggle.com/settings/api
+  kaggleUser: '',            // usuario de Kaggle (dueño del notebook y del dataset)
+  kaggleKernel: 'whisper-ws',// slug del notebook (id de kernel-metadata.json)
+  apagarAlCerrar: true       // POST /shutdown al cerrar el widget para no gastar GPU
 };
+
+// El notebook y su metadata se leen del repo en cada lanzamiento: así el widget
+// siempre ejecuta la última versión sin tener que actualizarse.
+const REPO_RAW = 'https://raw.githubusercontent.com/FirstRSSO/subtitulos-en-vivo/main/backend';
+const KAGGLE_API = 'https://api.kaggle.com/v1/kernels.KernelsApiService';
 
 const MIN_COMPLETO = { width: 420, height: 140 };
 const MIN_COMPACTO = { width: 240, height: 52 };
@@ -193,6 +204,24 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => app.quit());
+
+// Al cerrar, avisar al backend para que termine el notebook y no consuma cuota.
+// before-quit es síncrono: se cancela la salida, se manda el POST (con tope de
+// 3 s) y se vuelve a salir con la bandera puesta.
+let apagadoPedido = false;
+app.on('before-quit', (evento) => {
+  if (apagadoPedido || !config.apagarAlCerrar || !config.kaggleToken) return;
+  apagadoPedido = true;
+  const url = urlShutdown(config.apiUrl);
+  if (!url) return;
+  evento.preventDefault();
+  const fin = () => app.quit();
+  fetch(url, { method: 'POST', signal: AbortSignal.timeout(3000) })
+    .then(() => appendLog(`${new Date().toISOString()} info widget POST /shutdown enviado`))
+    .catch((e) => appendLog(`${new Date().toISOString()} error widget POST /shutdown: ${e.message}`))
+    .finally(fin);
+});
+
 app.on('will-quit', () => {
   globalShortcut.unregisterAll();
   if (resizeTimer) clearInterval(resizeTimer);
@@ -309,3 +338,89 @@ ipcMain.on('ventana:resize-fin', () => {
 
 ipcMain.on('ventana:minimizar', () => win?.minimize());
 ipcMain.on('ventana:cerrar', () => app.quit());
+
+/* ------------------------- arranque automático en Kaggle ------------------------- */
+
+function urlShutdown(apiUrl) {
+  try {
+    const url = new URL(apiUrl);
+    url.pathname = `${url.pathname.replace(/\/transcribe\/?$/, '').replace(/\/+$/, '')}/shutdown`;
+    url.search = '';
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+// Misma llamada RPC que hace el CLI oficial (`kaggle kernels push` / `status`):
+// POST JSON a api.kaggle.com con el token de kaggle.com/settings/api como Bearer.
+async function kaggleRpc(metodo, cuerpo) {
+  const r = await fetch(`${KAGGLE_API}/${metodo}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.kaggleToken}`
+    },
+    body: JSON.stringify(cuerpo),
+    signal: AbortSignal.timeout(30000)
+  });
+  const texto = await r.text();
+  let json = {};
+  try { json = JSON.parse(texto); } catch { /* no JSON */ }
+  if (!r.ok) {
+    const msg = json?.error?.message || json?.message || texto.slice(0, 200);
+    const err = new Error(`Kaggle ${metodo} → ${r.status}: ${msg}`);
+    err.status = r.status;
+    throw err;
+  }
+  return json;
+}
+
+// Estado de la última ejecución: QUEUED | RUNNING | COMPLETE | ERROR | … | null (nunca ejecutado)
+ipcMain.handle('kaggle:estado', async () => {
+  if (!config.kaggleToken || !config.kaggleUser) throw new Error('Falta el token o el usuario de Kaggle');
+  try {
+    const r = await kaggleRpc('GetKernelSessionStatus', {
+      userName: config.kaggleUser,
+      kernelSlug: config.kaggleKernel
+    });
+    const estado = typeof r.status === 'string' ? r.status : String(r.status ?? '');
+    return { estado, fallo: r.failureMessage || '' };
+  } catch (e) {
+    if (e.status === 404) return { estado: null, fallo: '' };
+    throw e;
+  }
+});
+
+// Equivale a `kaggle kernels push -p backend`: sube el notebook del repo y lo
+// ejecuta con GPU, internet y el dataset de caché que indica kernel-metadata.json.
+ipcMain.handle('kaggle:lanzar', async () => {
+  if (!config.kaggleToken || !config.kaggleUser) throw new Error('Falta el token o el usuario de Kaggle');
+  const [meta, nb] = await Promise.all([
+    fetch(`${REPO_RAW}/kernel-metadata.json`, { signal: AbortSignal.timeout(15000) }).then((r) => r.json()),
+    fetch(`${REPO_RAW}/colab_whisper_ws.ipynb`, { signal: AbortSignal.timeout(15000) }).then((r) => r.json())
+  ]);
+  // El servidor espera el código de cada celda como una sola cadena y sin salidas.
+  for (const celda of nb.cells ?? []) {
+    if (Array.isArray(celda.source)) celda.source = celda.source.join('');
+    if (celda.cell_type === 'code') { celda.outputs = []; celda.execution_count = null; }
+  }
+  const slug = `${config.kaggleUser}/${config.kaggleKernel}`;
+  const datasets = (meta.dataset_sources ?? []).map((d) => d.replace(/^[^/]+\//, `${config.kaggleUser}/`));
+  const r = await kaggleRpc('SaveKernel', {
+    slug,
+    newTitle: config.kaggleKernel,
+    text: JSON.stringify(nb),
+    language: 'python',
+    kernelType: 'notebook',
+    isPrivate: true,
+    enableGpu: meta.enable_gpu !== false,
+    enableInternet: true,
+    machineShape: meta.machine_shape || 'NvidiaTeslaT4',
+    datasetDataSources: datasets
+  });
+  if (r.error) throw new Error(`Kaggle: ${r.error}`);
+  if (r.invalidDatasetSources?.length) throw new Error(`Dataset no encontrado: ${r.invalidDatasetSources.join(', ')}`);
+  appendLog(`${new Date().toISOString()} info widget Notebook lanzado en Kaggle ${r.url || slug} v${r.versionNumber ?? '?'}`);
+  return { url: r.url || `https://www.kaggle.com/code/${slug}`, version: r.versionNumber ?? null };
+});

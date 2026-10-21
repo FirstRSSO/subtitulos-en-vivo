@@ -16,5 +16,7 @@ contextBridge.exposeInMainWorld('widget', {
   rutaLog: () => ipcRenderer.invoke('log:ruta'),
   vaciarLog: () => ipcRenderer.invoke('log:vaciar'),
   abrirLog: () => ipcRenderer.invoke('log:abrir'),
+  kaggleEstado: () => ipcRenderer.invoke('kaggle:estado'),
+  kaggleLanzar: () => ipcRenderer.invoke('kaggle:lanzar'),
   onAtajo: (callback) => ipcRenderer.on('atajo', (_evento, nombre) => callback(nombre))
 });
