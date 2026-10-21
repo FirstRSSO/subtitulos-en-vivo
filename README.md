@@ -1,32 +1,106 @@
+<div align="center">
+
 # Traductor de Audios
 
-Subtítulos en vivo del audio que estás oyendo, traducidos. Un mismo backend
-(Whisper en Colab o Kaggle) alimenta dos clientes:
+**Subtítulos en vivo, traducidos, del audio que estás oyendo.**
+
+[![Whisper](https://img.shields.io/badge/Whisper-large--v3--turbo-7c3aed?logo=openai&logoColor=white)](https://github.com/SYSTRAN/faster-whisper)
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.13-3776ab?logo=python&logoColor=white)](backend/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-WebSocket%20%2B%20HTTP-009688?logo=fastapi&logoColor=white)](backend/whisper_ws/server.py)
+[![Electron](https://img.shields.io/badge/Electron-44-47848f?logo=electron&logoColor=white)](widget/)
+[![Chrome](https://img.shields.io/badge/Chrome-Manifest%20V3-4285f4?logo=googlechrome&logoColor=white)](manifest.json)
+[![Kaggle](https://img.shields.io/badge/Kaggle-GPU%20T4-20beff?logo=kaggle&logoColor=white)](https://www.kaggle.com/)
+[![Cloudflare](https://img.shields.io/badge/Cloudflare-Tunnel-f38020?logo=cloudflare&logoColor=white)](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+[![Licencia MIT](https://img.shields.io/badge/Licencia-MIT-22c55e)](LICENSE)
+
+</div>
+
+Un backend con Whisper en una GPU gratuita de Kaggle (o Colab) transcribe y
+traduce fragmentos de audio. Dos clientes se lo mandan:
 
 | Cliente | Qué oye | Dónde se ve |
 |---|---|---|
-| **Extensión de Chrome** (esta carpeta) | La pestaña activa | Encima de la página |
-| **Widget de escritorio** ([`widget/`](widget/README.md)) | Todo el sistema, o un programa concreto | Ventana flotante siempre visible |
+| **Extensión de Chrome** (raíz del repo) | La pestaña activa | Caja de subtítulos sobre la página |
+| **Widget de escritorio** ([`widget/`](widget/README.md)) | Todo Windows, o un programa concreto | Ventana flotante siempre encima, incluso en juegos |
 
-## Backend (obligatorio)
+## Cómo funciona
 
-Notebook: [`backend/colab_whisper_ws.ipynb`](backend/colab_whisper_ws.ipynb).
-El código del servidor vive en el paquete [`backend/whisper_ws/`](backend/whisper_ws/);
-el notebook solo lo clona y lo llama.
+```mermaid
+flowchart LR
+    subgraph PC["Tu PC"]
+        W["Widget (Electron)"]
+        E["Extensión de Chrome"]
+    end
+    subgraph K["Kaggle · GPU T4"]
+        N["Notebook<br/>whisper_ws"]
+        D[("Dataset de caché<br/>modelo + wheels")]
+    end
+    G[("Gist<br/>URL del túnel")]
+    T["Cloudflare Tunnel"]
 
-1. Ábrelo en **Google Colab** o **Kaggle**, con GPU.
-2. Ejecuta las celdas en orden (código y dependencias → modelo y servidor → túnel).
-3. Copia la URL `https://….trycloudflare.com` que imprime el túnel.
-4. Pégala en la extensión o en el widget. Si no lleva `/transcribe`, se añade sola.
+    W -- "1 · lanza por API" --> N
+    D -. "carga en segundos" .-> N
+    N -- "2 · publica URL" --> G
+    G -- "3 · lee URL" --> W
+    W <-- "4 · audio / subtítulos (wss)" --> T
+    E <-- "audio / subtítulos (https)" --> T
+    T <--> N
+    W -- "al cerrar · POST /shutdown" --> N
+```
 
-GPU ideal: **T4 o mejor**. En Kaggle, la Tesla P100 vale, pero el modelo carga
-en `int8` porque esa GPU no hace `float16` eficiente.
+1. Pulsas **Escuchar**. Si el backend no responde, el widget lanza el notebook
+   en Kaggle por API.
+2. El notebook carga el modelo desde la caché, abre un túnel de Cloudflare y
+   publica la URL en un gist.
+3. El widget lee la URL del gist y conecta por WebSocket. Tarda 1-2 minutos la
+   primera vez de cada sesión.
+4. Cada fragmento de audio vuelve transcrito y traducido en menos de un
+   segundo. Al cerrar el widget, el notebook se apaga para no gastar cuota.
 
-### Arranque rápido en Kaggle (opcional)
+Todo gratis: Kaggle regala 30 h de GPU a la semana, el túnel y el gist no
+cuestan nada.
 
-Sin más, cada sesión descarga las dependencias y el modelo (~1,6 GB): unos
-3-6 minutos. Con una caché en un Kaggle Dataset se queda en menos de un minuto.
-Se genera una vez desde tu PC:
+## Inicio rápido
+
+**Modo manual** (vale para la extensión y para el widget):
+
+1. Abre [`backend/colab_whisper_ws.ipynb`](backend/colab_whisper_ws.ipynb) en
+   Kaggle o Colab con GPU y ejecuta las tres celdas.
+2. Copia la URL `https://….trycloudflare.com` que imprime la celda 3.
+3. Pégala en la extensión o en **⚙ Ajustes → Pegar** del widget.
+
+**Modo automático** (solo widget): configúralo una vez siguiendo
+[Arranque automático](widget/README.md#arranque-automático-sin-abrir-kaggle)
+y olvídate del navegador.
+
+## Backend
+
+El servidor vive en el paquete [`backend/whisper_ws/`](backend/whisper_ws/).
+El notebook solo clona el repo y lo llama, así que se actualiza solo al
+reejecutar la celda 1.
+
+| Celda | Qué hace |
+|---|---|
+| 1 · Código y dependencias | `git clone` del repo y [`setup_env.py`](backend/setup_env.py): instala desde la caché si existe, si no desde internet |
+| 2 · Modelo y servidor | `start()`: elige `float16`/`int8` según la GPU, precalienta CUDA y arranca FastAPI en `:8000` |
+| 3 · Túnel y espera | `open_tunnel()` + `publish()` + `wait_until_idle()`: mantiene vivo el notebook hasta que nadie lo use |
+
+### API
+
+| Endpoint | Uso |
+|---|---|
+| `GET /ws` | WebSocket. Un fragmento binario por mensaje; devuelve texto, traducción, idioma y tiempos. Lo usa el widget |
+| `POST /transcribe` | HTTP multipart. Lo usa la extensión y el widget como respaldo |
+| `GET /health` | Estado, GPU, modelo, segundos de inactividad |
+| `POST /shutdown` | Termina el notebook. Lo manda el widget al cerrarse |
+
+El notebook también se apaga solo tras **10 minutos sin clientes** o a las
+11,5 horas (Kaggle corta a las 12).
+
+### Caché de arranque rápido
+
+Sin caché cada sesión descarga el modelo (1,6 GB) y las dependencias. Con un
+Kaggle Dataset el túnel está listo en unos 70 segundos. Se genera una vez:
 
 ```bash
 pip install huggingface_hub kaggle
@@ -34,63 +108,71 @@ python backend/build_cache.py --kaggle-user TU_USUARIO   # ./whisper_ws_cache (~
 kaggle datasets create -p whisper_ws_cache --dir-mode zip
 ```
 
-(O súbela desde la web: Datasets → New Dataset.) En el notebook, *Add Input* →
-*Datasets* → `whisper-ws-cache`. La celda 1 la detecta sola en `/kaggle/input`.
-En Colab vale la misma carpeta en Drive (`MyDrive/whisper_ws_cache`), montando
-Drive antes; ahí conviene generarla con `--cuda-libs`, porque Colab suele traer
-un cuDNN que CTranslate2 no acepta. Si Kaggle cambia de versión de Python,
-regenera la caché con `--python X.Y`.
+Luego, en el notebook, *Add Input → Datasets → whisper-ws-cache*. La celda 1
+la detecta en `/kaggle/input`. En Colab sirve la misma carpeta en
+`MyDrive/whisper_ws_cache`, generada con `--cuda-libs`. Si Kaggle cambia de
+versión de Python, regenera con `--python X.Y` y sube una versión nueva con
+`kaggle datasets version`.
 
-El servidor ofrece `POST /transcribe` (HTTP, extensión y respaldo) y
-`GET /ws` (WebSocket, widget). `GET /health` confirma que el notebook sigue
-vivo y `POST /shutdown` lo apaga. El notebook termina solo tras 10 minutos sin
-clientes, para no gastar cuota de GPU.
+### Lanzar desde la terminal
 
-### Arranque automático desde el widget
+[`backend/kernel-metadata.json`](backend/kernel-metadata.json) describe el
+notebook (GPU, internet, dataset). Con el CLI oficial:
 
-El widget puede lanzar el notebook en Kaggle por API y leer la URL del túnel de
-un gist, sin abrir el navegador. La guía está en
-[widget/README.md](widget/README.md#arranque-automático-sin-abrir-kaggle).
-`backend/kernel-metadata.json` describe ese notebook (GPU, internet, dataset
-de caché) y sirve también para `kaggle kernels push -p backend`.
+```bash
+kaggle kernels push -p backend
+kaggle kernels status usuario/whisper-ws-cache2
+```
 
 ## Extensión de Chrome
 
-En `chrome://extensions` activa *Modo desarrollador* → *Cargar descomprimida*
-y apunta a **esta carpeta** (no a `widget/`).
-
-El icono abre un popup:
+En `chrome://extensions` activa *Modo desarrollador → Cargar descomprimida* y
+apunta a la **raíz del repo** (no a `widget/`). El icono abre un popup:
 
 | Campo | Para qué |
 |---|---|
 | **Backend de transcripción** | URL de `/transcribe` |
-| **Pegar** | Toma la URL del portapapeles; completa `/transcribe` si falta |
+| **Pegar** | Toma la URL del portapapeles y completa `/transcribe` si falta |
 | **Traducir a** | Idioma de destino |
 | **Iniciar / Detener** | Captura de la pestaña activa |
 
 URL e idioma se guardan en `chrome.storage.local` y se leen en cada envío: si
-el túnel cambia de dominio, pegas la URL nueva y listo, sin recargar.
-
-El manifest solo permite `localhost:8000` y `*.trycloudflare.com`. Si usas
-otro host (ngrok, un dominio propio), la extensión pide permiso al guardar.
-
-```
-manifest.json    permisos y punto de entrada
-config.js        valores por defecto y chrome.storage
-popup.html/js    configuración y botón de inicio
-background.js    orquesta captura, offscreen y subtítulos
-offscreen.js     graba fragmentos y los manda al backend
-content.js       caja de subtítulos en la página
-```
+el túnel cambia de dominio, pegas la nueva y listo. El manifest solo permite
+`localhost:8000` y `*.trycloudflare.com`; con otro host la extensión pide
+permiso al guardar.
 
 ## Widget de escritorio
 
-Captura el audio de Windows (o de un programa vía VB-CABLE), se queda encima
-de los juegos y se puede dejar en una barra de letras mínima. Guía completa:
-[widget/README.md](widget/README.md).
+Captura el audio de Windows (o de un programa concreto vía VB-CABLE), se queda
+encima de cualquier aplicación y se puede reducir a una barra de letras.
 
 ```bash
 cd widget
 npm install     # solo la primera vez
-npm start
+npm start       # o iniciar.bat
 ```
+
+Guía completa, atajos y ajustes: [widget/README.md](widget/README.md).
+
+## Estructura del repositorio
+
+```
+backend/
+  colab_whisper_ws.ipynb   notebook de tres celdas (Kaggle / Colab)
+  setup_env.py             celda 1: entorno, con o sin caché
+  build_cache.py           genera el dataset de caché
+  kernel-metadata.json     descripción del notebook para la API de Kaggle
+  whisper_ws/
+    server.py              modelo, FastAPI, WebSocket, apagado por inactividad
+    translate.py           Google Translate con tres puertas, caché y cuarentena
+    tunnel.py              cloudflared
+    gist.py                publica la URL del túnel
+    cache.py               localiza la caché (Kaggle, Drive, variable de entorno)
+    cuda_libs.py           carga cuDNN/cuBLAS de pip antes que torch
+widget/                    aplicación Electron (ver su README)
+manifest.json, *.js        extensión de Chrome
+```
+
+## Licencia
+
+[MIT](LICENSE).

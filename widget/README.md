@@ -1,5 +1,9 @@
 # Traductor de Audios — widget de escritorio
 
+[![Electron](https://img.shields.io/badge/Electron-44-47848f?logo=electron&logoColor=white)](package.json)
+[![Windows](https://img.shields.io/badge/Windows-loopback%20de%20audio-0078d4?logo=windows&logoColor=white)](#audio-de-un-solo-programa)
+[![Kaggle](https://img.shields.io/badge/Arranque-autom%C3%A1tico%20en%20Kaggle-20beff?logo=kaggle&logoColor=white)](#arranque-automático-sin-abrir-kaggle)
+
 Ventana flotante que traduce el audio **del sistema** o de **un programa
 concreto** y lo muestra como subtítulos, por encima de cualquier aplicación
 (incluso a pantalla completa).
