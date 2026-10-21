@@ -20,6 +20,11 @@ BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
 if BACKEND_DIR not in sys.path:
     sys.path.insert(0, BACKEND_DIR)
 
+# Si la celda se vuelve a ejecutar tras un `git pull`, Python seguiría usando los
+# módulos ya cargados. Se descartan para que la celda 2 importe el código nuevo.
+for _m in [m for m in sys.modules if m == "whisper_ws" or m.startswith("whisper_ws.")]:
+    del sys.modules[_m]
+
 from whisper_ws.cache import find_cache  # noqa: E402  (solo stdlib)
 
 PACKAGES = ["faster-whisper", "av<19", "fastapi", "uvicorn[standard]", "python-multipart", "requests"]
