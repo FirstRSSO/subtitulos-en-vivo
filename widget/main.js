@@ -26,7 +26,7 @@ const DEFAULTS = {
   gistUrl: '',               // https://gist.github.com/usuario/id — el notebook publica ahí su URL
   kaggleToken: '',           // KGAT_… de kaggle.com/settings/api
   kaggleUser: '',            // usuario de Kaggle (dueño del notebook y del dataset)
-  kaggleKernel: 'whisper-ws',// slug del notebook (id de kernel-metadata.json)
+  kaggleKernel: 'whisper-ws-cache2', // slug del notebook (id de kernel-metadata.json)
   apagarAlCerrar: true       // POST /shutdown al cerrar el widget para no gastar GPU
 };
 

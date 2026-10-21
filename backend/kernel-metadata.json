@@ -1,6 +1,6 @@
 {
-  "id": "michaelnegrete/whisper-ws",
-  "title": "whisper-ws",
+  "id": "michaelnegrete/whisper-ws-cache2",
+  "title": "whisper-ws-cache2",
   "code_file": "colab_whisper_ws.ipynb",
   "language": "python",
   "kernel_type": "notebook",

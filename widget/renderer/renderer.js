@@ -1045,7 +1045,7 @@ const camposKaggle = [
 for (const [input, clave] of camposKaggle) {
   input.addEventListener('change', () => {
     const valor = input.value.trim();
-    guardar({ [clave]: clave === 'kaggleKernel' && !valor ? 'whisper-ws' : valor });
+    guardar({ [clave]: clave === 'kaggleKernel' && !valor ? 'whisper-ws-cache2' : valor });
     if (clave === 'kaggleKernel') input.value = cfg.kaggleKernel;
     registrar('info', 'widget', `Ajuste ${clave} guardado`, clave === 'kaggleToken' ? '(oculto)' : cfg[clave]);
   });

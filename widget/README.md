@@ -131,7 +131,7 @@ Se configura una vez, en **⚙ Ajustes → Arranque automático del backend**:
    principal): sin él cada arranque tarda 5-6 min en vez de 1-2.
 4. **Token de Kaggle:** [kaggle.com/settings/api](https://www.kaggle.com/settings/api)
    → *Generate New Token*. Pégalo en *Token de Kaggle* y escribe tu usuario
-   en *Usuario de Kaggle*. El nombre del notebook es `whisper-ws` salvo que
+   en *Usuario de Kaggle*. El nombre del notebook es `whisper-ws-cache2` salvo que
    cambies `backend/kernel-metadata.json`.
 5. **Primer lanzamiento y Secrets.** Pulsa **Escuchar**: el widget crea el
    notebook `whisper-ws` en tu cuenta y lo ejecuta. Ese primer arranque
@@ -149,7 +149,7 @@ El mismo lanzamiento se puede hacer desde la terminal, con el CLI oficial:
 
 ```bash
 kaggle kernels push -p backend          # lanza; la URL aparece en el gist
-kaggle kernels status usuario/whisper-ws
+kaggle kernels status usuario/whisper-ws-cache2
 ```
 
 Si el arranque falla, el botón **log** dice en qué paso: `Fallo al lanzar el
