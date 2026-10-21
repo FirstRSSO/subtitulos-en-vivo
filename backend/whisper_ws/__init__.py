@@ -19,7 +19,7 @@ def run(size: str = "turbo", idle_min: float = 10, **kw):
     from .server import start, wait_until_idle, device, model_size  # noqa: F401
     from . import server
     from .tunnel import open_tunnel
-    from .publish import publish
+    from .gist import publish
     start(size, **kw)
     url = open_tunnel()
     publish(url, device=server.device, model=server.model_size)
@@ -34,6 +34,6 @@ def __getattr__(name):
         from .tunnel import open_tunnel
         return open_tunnel
     if name == "publish":
-        from .publish import publish
+        from .gist import publish
         return publish
     raise AttributeError(name)
