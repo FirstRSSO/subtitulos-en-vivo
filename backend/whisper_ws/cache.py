@@ -9,12 +9,14 @@ en Google Drive para Colab):
       cloudflared          binario linux-amd64
 
 Se busca, por orden: la variable WHISPER_WS_CACHE, cualquier dataset de Kaggle
-montado en /kaggle/input/* que tenga la carpeta "model" o "wheels", y
-/content/drive/MyDrive/whisper_ws_cache (Colab con Drive montado).
+montado bajo /kaggle/input (antes /kaggle/input/<nombre>, desde 2026
+/kaggle/input/datasets/<usuario>/<nombre>) que tenga la carpeta "model" o
+"wheels", y /content/drive/MyDrive/whisper_ws_cache (Colab con Drive montado).
 """
 import glob
 import os
 
+KAGGLE_GLOBS = ["/kaggle/input/*", "/kaggle/input/*/*", "/kaggle/input/*/*/*"]
 CANDIDATES = [
     "/content/drive/MyDrive/whisper_ws_cache",
 ]
@@ -24,7 +26,8 @@ def find_cache() -> str | None:
     env = os.environ.get("WHISPER_WS_CACHE")
     if env:
         return env if os.path.isdir(env) else None
-    for d in sorted(glob.glob("/kaggle/input/*")) + CANDIDATES:
+    kaggle = [d for pat in KAGGLE_GLOBS for d in sorted(glob.glob(pat))]
+    for d in kaggle + CANDIDATES:
         if os.path.isdir(os.path.join(d, "model")) or os.path.isdir(os.path.join(d, "wheels")):
             return d
     return None
